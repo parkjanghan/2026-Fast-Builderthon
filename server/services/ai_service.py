@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, ValidationError
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from services.voice_service import voice_service
+from services.voice_service import get_voice_service
 
 
 # ============================================================================
@@ -152,7 +152,7 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
                 # 음성 생성 (guidance가 있으면)
                 result = decision.model_dump()
                 if decision.guidance:
-                    audio_url = await voice_service.generate_speech(decision.guidance)
+                    audio_url = await get_voice_service().generate_speech(decision.guidance)
                     result["audio_url"] = audio_url
 
                 return result
