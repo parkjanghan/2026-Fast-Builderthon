@@ -1,0 +1,175 @@
+# ============================================================================
+# 📁 models/commands.py - 에디터 명령 스키마 (서버 → 로컬)
+# ============================================================================
+#
+# 🎯 역할:
+#   Part 2 서버에서 받은 에디터 조작 명령을 검증하고 파싱합니다.
+#   Pydantic v2를 사용하여 타입 안전성을 보장합니다.
+#
+# 📝 명령 타입:
+#   - focus_window: 특정 창에 포커스
+#   - hotkey: 단축키 실행 (Ctrl+G 등)
+#   - type_text: 텍스트 입력
+#   - command_palette: VS Code 명령 팔레트 실행
+#   - open_file: 파일 열기
+#   - goto_line: 특정 라인으로 이동
+#
+# ============================================================================
+
+from pydantic import BaseModel, Field
+from typing import Literal, Any, Dict, Optional
+
+
+# ============================================================================
+# 🔧 페이로드 모델들 (각 명령 타입별)
+# ============================================================================
+
+class FocusWindowPayload(BaseModel):
+    """창 포커스 명령 페이로드"""
+    window_title: str = Field(..., description="포커스할 창의 제목")
+
+
+class HotkeyPayload(BaseModel):
+    """단축키 명령 페이로드"""
+    keys: list[str] = Field(..., description="단축키 조합 (예: ['ctrl', 'g'])")
+
+
+class TypeTextPayload(BaseModel):
+    """텍스트 입력 명령 페이로드"""
+    content: str = Field(..., description="입력할 텍스트")
+
+
+class CommandPalettePayload(BaseModel):
+    """명령 팔레트 명령 페이로드"""
+    command: str = Field(..., description="실행할 명령어 (예: 'Go to Line')")
+
+
+class OpenFilePayload(BaseModel):
+    """파일 열기 명령 페이로드"""
+    file_path: str = Field(..., description="열 파일의 경로")
+
+
+class GotoLinePayload(BaseModel):
+    """라인 이동 명령 페이로드"""
+    line_number: int = Field(..., description="이동할 라인 번호", ge=1)
+
+
+# ============================================================================
+# 🎯 메인 명령 모델
+# ============================================================================
+
+class EditorCommand(BaseModel):
+    """
+    📡 서버에서 받은 에디터 조작 명령
+    
+    이 모델은 Part 2 서버에서 전송한 명령을 검증하고 파싱합니다.
+    각 명령 타입에 따라 다른 페이로드 구조를 가집니다.
+    
+    Example:
+        # 단축키 명령
+        cmd = EditorCommand(
+            type="hotkey",
+            payload={"keys": ["ctrl", "g"]}
+        )
+        
+        # 텍스트 입력 명령
+        cmd = EditorCommand(
+            type="type_text",
+            payload={"content": "print('Hello')"}
+        )
+    """
+    
+    type: Literal[
+        "focus_window",
+        "hotkey",
+        "type_text",
+        "command_palette",
+        "open_file",
+        "goto_line"
+    ] = Field(..., description="명령 타입")
+    
+    payload: Dict[str, Any] = Field(..., description="명령별 페이로드 데이터")
+    
+    # 선택적 필드들 (레거시 호환성)
+    id: Optional[str] = Field(None, description="명령 ID (추적용)")
+    audio_url: Optional[str] = Field(None, description="재생할 오디오 URL")
+    
+    @classmethod
+    def from_legacy(cls, command_data: Dict[str, Any]) -> "EditorCommand":
+        """
+        🔄 레거시 형식(action/target/content)을 새 형식으로 변환
+        
+        Part 2에서 기존 dict 형식으로 보낸 명령을 EditorCommand로 변환합니다.
+        
+        Args:
+            command_data: 레거시 형식 명령 데이터
+                - action: 수행할 동작 (type, hotkey, goto_line 등)
+                - target: 대상 요소 (editor, window_title 등)
+                - content: 입력할 내용 (타이핑의 경우)
+                - line: 라인 번호 (goto_line의 경우)
+                - audio_url: 재생할 오디오 URL
+                - id: 명령 ID
+        
+        Returns:
+            EditorCommand: 변환된 명령 객체
+        
+        Example:
+            legacy_cmd = {
+                "action": "type",
+                "target": "editor",
+                "content": "hello world",
+                "audio_url": "https://..."
+            }
+            cmd = EditorCommand.from_legacy(legacy_cmd)
+            assert cmd.type == "type_text"
+            assert cmd.payload["content"] == "hello world"
+        """
+        action = command_data.get("action", "").lower()
+        target = command_data.get("target", "")
+        content = command_data.get("content", "")
+        line = command_data.get("line")
+        audio_url = command_data.get("audio_url")
+        cmd_id = command_data.get("id")
+        
+        # 🔀 action을 type으로 매핑
+        if action == "type":
+            cmd_type = "type_text"
+            payload = {"content": content}
+        
+        elif action == "hotkey":
+            cmd_type = "hotkey"
+            # content가 "ctrl+g" 형식이면 파싱
+            if isinstance(content, str):
+                keys = [k.strip() for k in content.split("+")]
+            else:
+                keys = content if isinstance(content, list) else []
+            payload = {"keys": keys}
+        
+        elif action == "goto_line":
+            cmd_type = "goto_line"
+            line_num = line if isinstance(line, int) else int(line or 1)
+            payload = {"line_number": line_num}
+        
+        elif action == "command_palette":
+            cmd_type = "command_palette"
+            payload = {"command": content}
+        
+        elif action == "open_file":
+            cmd_type = "open_file"
+            payload = {"file_path": content}
+        
+        elif action == "focus_window":
+            cmd_type = "focus_window"
+            payload = {"window_title": target or content}
+        
+        else:
+            # 기본값: type_text로 처리
+            cmd_type = "type_text"
+            payload = {"content": content}
+        
+        return cls(
+            type=cmd_type,
+            payload=payload,
+            audio_url=audio_url,
+            id=cmd_id
+        )
