@@ -120,16 +120,21 @@ local-program은 문건호가 확립한 코드 스타일을 따릅니다:
 4. **Docstring**: 모든 함수에 한글 docstring + Examples 섹션
 5. **Type Hints**: 모든 함수 시그니처에 타입 힌트 필수
 
-## 개발 우선순위
+## 구현 현황
 
-local-program 멘토 구현 순서:
+local-program 멘토 구현 — **모두 완료**:
 
-1. `controller/window.py` — pywinauto 창 관리 (find, focus, is_running)
-2. `controller/keyboard.py` — 키보드 입력 시뮬레이션 (hotkey, type_text, command_palette)
-3. `controller/executor.py` — 핸들러 메서드 구현 (_handle_* 메서드들)
+1. `controller/window.py` — ✅ pywinauto 창 관리 (find, focus, ensure_window, launch_app)
+2. `controller/keyboard.py` — ✅ keyboard 라이브러리 (hotkey, type_text, command_palette)
+3. `controller/executor.py` — ✅ 6개 _handle_* 핸들러 모두 구현
 
-현재 모든 핸들러는 `NotImplementedError`로 스캐폴딩되어 있습니다.
-디스패치 로직(execute 메서드)은 이미 작동합니다.
+자동화 테스트: **80개 (74 unit + 6 integration)**
+
+```powershell
+cd local-program
+.venv\Scripts\pytest.exe tests/ -v -m "not integration"  # 74 passed
+.venv\Scripts\ruff.exe check controller/ models/ tests/   # All checks passed
+```
 
 ## 의존성
 
@@ -145,6 +150,7 @@ dependencies = [
     "pyyaml>=6.0",                      # 키맵 설정
     "pywinauto>=0.6.8",                 # Windows 자동화
     "pygetwindow>=0.0.9",              # 활성 창 정보
+    "keyboard>=0.13.5",                 # 키보드 입력 시뮬레이션
 ]
 ```
 

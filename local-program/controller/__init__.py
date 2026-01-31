@@ -13,7 +13,7 @@
 #
 # 💡 사용 예시:
 #   from controller import EditorController
-#   
+#
 #   controller = EditorController()
 #   result = controller.execute(command)
 #

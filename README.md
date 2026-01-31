@@ -86,15 +86,21 @@ pywinauto 기반 범용 Windows 에디터 제어 (VS Code, 점자 에디터 등)
 │   ├── main.py             # WebSocket 클라이언트 + 이벤트 핸들러
 │   ├── config.py           # 설정값 관리
 │   ├── audio_handler.py    # ElevenLabs 오디오 재생
-│   ├── controller/         # 에디터 제어 엔진 (멘토 구현)
-│   │   ├── executor.py     # 명령 디스패치
-│   │   ├── window.py       # 윈도우 관리 (pywinauto)
-│   │   └── keyboard.py     # 키보드 제어
+│   ├── controller/         # 에디터 제어 엔진 (✅ 구현 완료)
+│   │   ├── executor.py     # 명령 디스패치 (6개 핸들러 구현)
+│   │   ├── window.py       # 윈도우 관리 (pywinauto + pygetwindow)
+│   │   └── keyboard.py     # 키보드 제어 (keyboard 라이브러리)
 │   ├── models/             # Pydantic 스키마
 │   │   ├── commands.py     # 명령 모델 (EditorCommand)
 │   │   └── status.py       # 상태 모델 (LocalStatus)
 │   ├── keymaps/            # 에디터별 키맵 프로파일
-│   │   └── vscode.yaml     # VS Code 기본 단축키
+│   │   └── vscode.yaml     # VS Code 기본 단축키 (14개)
+│   ├── tests/              # 🧪 자동화 테스트 (pytest, 80개)
+│   │   ├── test_models.py
+│   │   ├── test_controller.py
+│   │   ├── test_edge_cases.py
+│   │   ├── test_scenarios.py
+│   │   └── test_integration.py
 │   ├── README.md           # Local Agent 상세 문서
 │   └── AGENTS.md           # AI 에이전트 개발 가이드
 │
@@ -107,7 +113,7 @@ pywinauto 기반 범용 Windows 에디터 제어 (VS Code, 점자 에디터 등)
 |----------|------|
 | **Extension** | Manifest V3, WebSocket, chrome.tabCapture |
 | **Server** | Replit, NVIDIA NIM (VLM), ElevenLabs, LangChain |
-| **Local Agent** | Python 3.12, pywinauto, pygame, python-socketio, Pydantic |
+| **Local Agent** | Python 3.12, pywinauto, keyboard, pygame, python-socketio, Pydantic |
 | **통신** | WebSocket (Socket.IO) - 3자 실시간 통신 |
 | **패키지 관리** | uv (Local Agent) |
 
@@ -173,6 +179,12 @@ uv sync
 
 # 실행 (서버 URL은 config.py에서 설정)
 uv run python main.py
+
+# 테스트 실행
+.venv\Scripts\pytest.exe tests/ -v -m "not integration"
+
+# 코드 품질 검사
+.venv\Scripts\ruff.exe check controller/ models/ tests/
 ```
 
 각 파트별 상세 문서는 해당 디렉토리의 README.md를 참고하세요.

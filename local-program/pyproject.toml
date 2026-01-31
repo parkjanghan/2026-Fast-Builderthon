@@ -13,10 +13,44 @@ dependencies = [
     "pyyaml>=6.0",
     "pywinauto>=0.6.8",
     "pygetwindow>=0.0.9",
+    "keyboard>=0.13.5",
 ]
 
 [project.scripts]
 syncsight-local = "main:main"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: 실제 VS Code가 필요한 통합 테스트 (deselect with '-m \"not integration\"')",
+]
+
 [tool.uv]
-dev-dependencies = []
+dev-dependencies = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+    "ruff>=0.14",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "F",      # pyflakes
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "I",      # isort
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "SIM",    # flake8-simplify
+    "RUF",    # ruff-specific
+]
+ignore = [
+    "E501",   # line-too-long (한글 주석이 길어질 수 있음)
+    "B905",   # zip-without-strict (Python 3.10+)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B", "SIM"]  # 테스트 파일은 bugbear/simplify 완화

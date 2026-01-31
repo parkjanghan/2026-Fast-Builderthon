@@ -73,6 +73,19 @@ STATUS_REPORT_INTERVAL = 1.0
 #   TYPING_DELAY = 0.05  # 타이핑 딜레이 (초)
 #
 
-# [멘토님 설정 추가 공간]
+# 🎯 대상 에디터 설정
+TARGET_EDITOR = "Visual Studio Code"
 
+# 📂 프로젝트 폴더 경로 (VS Code 다중 창 시 이 프로젝트를 우선 선택)
+# 예: r"C:\Users\student\my-project"
+TARGET_PROJECT_PATH = ""
+
+# 🚀 앱 자동 실행 설정
+AUTO_LAUNCH_ENABLED = True         # 앱이 꺼져있으면 자동 실행
+APP_LAUNCH_TIMEOUT = 15            # 앱 실행 후 창이 뜰 때까지 대기 (초)
+APP_LAUNCH_POLL_INTERVAL = 0.5     # 창 감지 폴링 간격 (초)
+
+# 💻 VS Code 실행 경로 (비워두면 PATH에서 "code" 검색)
+# 예: r"C:\Users\student\AppData\Local\Programs\Microsoft VS Code\Code.exe"
+VSCODE_EXE_PATH = r"C:\Users\owjs3\AppData\Local\Programs\Microsoft VS Code\Code.exe"
 

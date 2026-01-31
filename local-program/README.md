@@ -50,7 +50,7 @@ local-program/
 │   ├── __init__.py           # Package exports
 │   ├── executor.py           # Command dispatcher, keymap loader
 │   ├── window.py             # Window management (pywinauto)
-│   └── keyboard.py           # Keyboard control (pywinauto/keyboard)
+│   └── keyboard.py           # Keyboard control (keyboard library)
 │
 ├── models/                    # 📦 Pydantic v2 schemas
 │   ├── __init__.py           # Package exports
@@ -59,6 +59,14 @@ local-program/
 │
 ├── keymaps/                   # ⌨️ Editor keyboard shortcuts
 │   └── vscode.yaml           # VS Code default keymap
+│
+├── tests/                     # 🧪 Automated test suite
+│   ├── conftest.py            # Pytest fixtures (mocked controllers)
+│   ├── test_controller.py     # Dispatch routing, state transitions
+│   ├── test_models.py         # EditorCommand, LocalStatus validation
+│   ├── test_edge_cases.py     # Window edge cases, error handling
+│   ├── test_scenarios.py      # Real-world command sequences
+│   └── test_integration.py    # E2E tests (requires VS Code)
 │
 ├── pyproject.toml            # 📦 uv project config & dependencies
 ├── uv.lock                   # 🔒 Dependency lock file
@@ -91,6 +99,7 @@ This will install:
 - `pyyaml` - Keymap file parsing
 - `pywinauto` - Windows automation
 - `pygetwindow` - Window management
+- `keyboard` - Keyboard input simulation (text typing, hotkeys)
 
 ## Configuration
 
@@ -108,6 +117,21 @@ RECONNECT_MAX_ATTEMPTS = 10
 # Status reporting interval (seconds)
 STATUS_REPORT_INTERVAL = 1.0
 ```
+
+### Mentor Settings
+
+The following mentor-specific settings are configured in the bottom section of `config.py`:
+
+```python
+# 멘토 설정 (config.py 하단)
+TARGET_EDITOR = "Visual Studio Code"
+TARGET_PROJECT_PATH = ""  # 다중 VS Code 창 시 프로젝트 선택용
+AUTO_LAUNCH_ENABLED = True
+APP_LAUNCH_TIMEOUT = 15
+VSCODE_EXE_PATH = r"C:\Users\...\Code.exe"
+```
+
+These settings control window selection, auto-launch behavior, and editor-specific paths.
 
 ## Running the Agent
 
@@ -193,7 +217,7 @@ handler.wait_until_done()  # Wait for audio to finish
 **Key Methods**:
 - `execute(command: EditorCommand)`: Main dispatcher (uses match/case)
 - `get_status()`: Returns `LocalStatus` object
-- `_handle_*()`: Handler methods for each command type (NotImplementedError stubs)
+- `_handle_*()`: Handler methods for each command type
 
 **Command Types**:
 1. `focus_window`: Bring target window to foreground
@@ -213,14 +237,17 @@ controller = EditorController(keymap_path="keymaps/vscode.yaml")
 
 **Role**: Find, focus, and query Windows application windows
 
-**Key Methods** (all NotImplementedError stubs):
-- `find_window(name)`: Find window by title pattern
-- `focus_window(name)`: Activate and bring window to front
-- `is_app_running(name)`: Check if app is running
-- `get_active_window_title()`: Get current active window title
+**Key Methods** (fully implemented):
+- `find_window(name, project_hint)`: Find window by title, with multi-window project filtering
+- `find_all_windows(name)`: Returns all matching window titles
+- `focus_window(name, project_hint)`: Activate and bring window to front, handles minimized
+- `ensure_window(name, project_hint, launch_cmd, auto_launch, timeout, poll_interval)`: Core method: find → auto-launch if needed → poll until ready → focus
+- `launch_app(name, launch_cmd, project_hint)`: Auto-detects VS Code/Notepad, supports custom launch commands
+- `is_app_running(name)`: Check via window titles (pygetwindow)
+- `get_active_window_title()`: Returns current active window title
 
 **Implementation Strategy**:
-Use pywinauto for window management:
+Uses pywinauto for window management:
 ```python
 from pywinauto import Application
 app = Application(backend='uia').connect(title_re=".*Visual Studio Code.*")
@@ -232,10 +259,10 @@ main_window.set_focus()
 
 **Role**: Send keyboard input to active window
 
-**Key Methods** (all NotImplementedError stubs):
-- `send_hotkey(keys)`: Send key combination (["ctrl", "g"])
-- `type_text(text)`: Type text with special character escaping
-- `send_command_palette(command)`: Open palette + type command + Enter
+**Key Methods** (fully implemented):
+- `send_hotkey(keys)`: Uses keyboard.send() with "+" separator
+- `type_text(text)`: Uses keyboard.write() (avoids pywinauto special char issues)
+- `send_command_palette(command)`: Ctrl+Shift+P → type → Enter
 
 **Implementation Strategy**:
 Hybrid approach due to Electron app limitations:
@@ -406,97 +433,136 @@ Jump to specific line number.
 - `config.py` - Configuration management
 - `audio_handler.py` - Audio playback logic
 
-**IMPLEMENT** (Mentor's scope):
-- `controller/window.py` - All methods (currently NotImplementedError)
-- `controller/keyboard.py` - All methods (currently NotImplementedError)
-- `controller/executor.py` - Handler methods `_handle_*()` (currently NotImplementedError)
+**IMPLEMENTED** (Mentor's scope) - All complete:
+- `controller/window.py` - All methods fully implemented
+- `controller/keyboard.py` - All methods fully implemented
+- `controller/executor.py` - All handler methods fully implemented
 
-### Implementation Entry Point
+## Testing
 
-The main entry point for mentor's logic is in `main.py`:
+### Automated Tests (pytest)
 
-```python
-def execute_mentor_logic(command_data: Dict[str, Any]):
-    """
-    🎯 Mentor's implementation goes here
-    
-    This function is called AFTER audio playback completes.
-    Use EditorController to execute commands.
-    """
-    # Example implementation:
-    from controller import EditorController
-    from models import EditorCommand
-    
-    # Parse command
-    cmd = EditorCommand.from_legacy(command_data)
-    
-    # Execute via controller
-    controller = EditorController()
-    result = controller.execute(cmd)
-    
-    print(f"✅ Command executed: {result}")
+The project includes a comprehensive test suite covering all controller functionality:
+
+```powershell
+cd local-program
+
+# Run all unit tests (excludes integration tests)
+.venv\Scripts\pytest.exe tests/ -v -m "not integration"
+# Result: 74 passed, 6 deselected
+
+# Run ALL tests including integration (requires VS Code running)
+.venv\Scripts\pytest.exe tests/ -v
+
+# Run specific test file
+.venv\Scripts\pytest.exe tests/test_models.py -v
+
+# Run with short output
+.venv\Scripts\pytest.exe tests/ -m "not integration" -q
 ```
 
-### Recommended Implementation Order
+**Test breakdown**:
 
-1. **Window Management** (`controller/window.py`):
-   - Implement `find_window()` using pywinauto
-   - Implement `focus_window()` using pywinauto
-   - Implement `is_app_running()` using pywinauto
-   - Implement `get_active_window_title()` using pygetwindow
+| File | Tests | Coverage |
+|------|-------|----------|
+| test_models.py | 21 | EditorCommand, from_legacy, payloads, LocalStatus |
+| test_controller.py | 11 | Dispatch routing, IDLE/BUSY state, get_status |
+| test_edge_cases.py | 20 | Window selection, app detection, ensure_window, launch_app |
+| test_scenarios.py | 12 | New file, hello world, file+goto, formatting, full session |
+| test_integration.py | 6 | E2E flows (marked @pytest.mark.integration, requires VS Code) |
 
-2. **Keyboard Control** (`controller/keyboard.py`):
-   - Implement `send_hotkey()` using keyboard library
-   - Implement `type_text()` using keyboard library
-   - Implement `send_command_palette()` combining hotkey + type + Enter
+**Code Quality (ruff)**:
 
-3. **Command Handlers** (`controller/executor.py`):
-   - Implement `_handle_focus_window()` using WindowManager
-   - Implement `_handle_hotkey()` using KeyboardController
-   - Implement `_handle_type_text()` using KeyboardController
-   - Implement `_handle_command_palette()` using KeyboardController
-   - Implement `_handle_open_file()` using KeyboardController
-   - Implement `_handle_goto_line()` using KeyboardController
+```powershell
+# Lint check
+.venv\Scripts\ruff.exe check controller/ models/ tests/
 
-4. **Integration** (`main.py`):
-   - Replace stub in `execute_mentor_logic()` with controller calls
+# Format check
+.venv\Scripts\ruff.exe format --check controller/ models/ tests/
+```
 
-### Testing Approach
+### Manual Verification (Live Testing)
 
-Manual verification procedure:
+For testing with actual VS Code and real window interactions:
 
-1. **Window Management Test**:
-   ```python
-   from controller.window import WindowManager
-   wm = WindowManager()
-   
-   # Test: Find VS Code window
-   assert wm.find_window("Visual Studio Code") is not None
-   
-   # Test: Focus VS Code
-   assert wm.focus_window("Visual Studio Code") == True
-   
-   # Test: Check if running
-   assert wm.is_app_running("Visual Studio Code") == True
-   ```
+#### 1. Window Management Test
 
-2. **Keyboard Control Test**:
-   ```python
-   from controller.keyboard import KeyboardController
-   kb = KeyboardController()
-   
-   # Test: Send Ctrl+G (should open Go to Line dialog)
-   kb.send_hotkey(["ctrl", "g"])
-   
-   # Test: Type text
-   kb.type_text("print('test')")
-   ```
+```python
+# In Python REPL or test script
+from controller.window import WindowManager
 
-3. **End-to-End Test**:
-   - Start local agent: `uv run python main.py`
-   - Send test command from server
-   - Verify audio plays
-   - Verify editor action executes
+wm = WindowManager()
+
+# Open VS Code first, then run:
+print("Test 1: Find window")
+window = wm.find_window("Visual Studio Code")
+assert window is not None, "Failed to find VS Code"
+print("✅ Pass")
+
+print("Test 2: Focus window")
+result = wm.focus_window("Visual Studio Code")
+assert result == True, "Failed to focus VS Code"
+print("✅ Pass")
+
+print("Test 3: Check if running")
+result = wm.is_app_running("Visual Studio Code")
+assert result == True, "VS Code should be running"
+print("✅ Pass")
+
+print("Test 4: Get active window")
+title = wm.get_active_window_title()
+assert "Visual Studio Code" in title, f"Expected VS Code, got {title}"
+print("✅ Pass")
+```
+
+#### 2. Keyboard Control Test
+
+```python
+# Open VS Code and focus it first
+from controller.keyboard import KeyboardController
+import time
+
+kb = KeyboardController()
+
+print("Test 1: Send hotkey (Ctrl+G)")
+kb.send_hotkey(["ctrl", "g"])
+time.sleep(0.5)
+# Verify: Go to Line dialog should appear
+input("Press Enter if Go to Line dialog appeared...")
+kb.send_hotkey(["esc"])  # Close dialog
+print("✅ Pass")
+
+print("Test 2: Type text")
+kb.type_text("# Test comment")
+time.sleep(0.5)
+# Verify: Text should appear in editor
+input("Press Enter if text appeared...")
+print("✅ Pass")
+
+print("Test 3: Command palette")
+kb.send_command_palette("Go to Line")
+time.sleep(0.5)
+# Verify: Go to Line dialog should appear
+input("Press Enter if dialog appeared...")
+kb.send_hotkey(["esc"])
+print("✅ Pass")
+```
+
+#### 3. End-to-End Test
+
+```bash
+# Terminal 1: Start local agent
+uv run python main.py
+
+# Terminal 2: Send test command (requires server running)
+# Or manually trigger from server UI
+```
+
+Verify:
+1. Audio plays (if audio_url provided)
+2. Editor action executes correctly
+3. `task_complete` event sent to server
+4. No errors in console
 
 ## Known Issues
 
@@ -509,10 +575,11 @@ Manual verification procedure:
 error: `pacman` must be installed and on PATH to install pygame from source.
 ```
 
-**Impact**: Blocks `uv run` commands during development.
+**Impact**: May block `uv sync` on some systems.
 
 **Workaround**: 
-- Development: Code review verification instead of runtime tests
+- Development: Use pre-built pygame wheels or install MSYS2
+- Testing: Automated tests work fine with mocked dependencies
 - Deployment: Use environment with MSYS2 installed, or use pre-built pygame wheels
 
 **Status**: Does not affect production deployment on properly configured systems.

@@ -257,6 +257,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pywinauto>=0.6.8",
     "pygetwindow>=0.0.9",
+    "keyboard>=0.13.5",
 ]
 ```
 
@@ -367,56 +368,27 @@ Before implementing, read:
 - `controller/executor.py` - Understand dispatch pattern
 - `keymaps/vscode.yaml` - Understand available shortcuts
 
-### 2. Implement in Order
+### 2. Current Implementation Status
 
-Follow this sequence:
+All controller modules are **fully implemented and tested**:
 
-1. **`controller/window.py`** - Window management
-   - `find_window()` - Find window by pattern
-   - `focus_window()` - Activate window
-   - `is_app_running()` - Check if app running
-   - `get_active_window_title()` - Get active window
+| Module | Status | Description |
+|--------|--------|-------------|
+| `controller/window.py` | ✅ Complete | pywinauto + pygetwindow window management, auto-launch, multi-window support |
+| `controller/keyboard.py` | ✅ Complete | keyboard library for hotkeys, text input, command palette |
+| `controller/executor.py` | ✅ Complete | All 6 _handle_* methods implemented, state management (IDLE/BUSY) |
+| `models/commands.py` | ✅ Complete | EditorCommand with from_legacy() adapter, 6 payload models |
+| `models/status.py` | ✅ Complete | LocalStatus Pydantic model |
+| `main.py` (execute_mentor_logic) | ✅ Complete | Calls EditorController, handles errors |
 
-2. **`controller/keyboard.py`** - Keyboard control
-   - `send_hotkey()` - Send key combinations
-   - `type_text()` - Type text safely
-   - `send_command_palette()` - Open palette + execute
+### 3. Development Workflow (for future changes)
 
-3. **`controller/executor.py`** - Command handlers
-   - `_handle_focus_window()` - Use WindowManager
-   - `_handle_hotkey()` - Use KeyboardController
-   - `_handle_type_text()` - Use KeyboardController
-   - `_handle_command_palette()` - Use KeyboardController
-   - `_handle_open_file()` - Use KeyboardController
-   - `_handle_goto_line()` - Use KeyboardController
+When modifying existing code:
 
-4. **`main.py`** - Integration
-   - Implement `execute_mentor_logic()` body
-
-### 3. Test Incrementally
-
-Test each module before moving to next:
-
-```python
-# Test window.py
-from controller.window import WindowManager
-wm = WindowManager()
-assert wm.find_window("Visual Studio Code") is not None
-assert wm.focus_window("Visual Studio Code") == True
-
-# Test keyboard.py
-from controller.keyboard import KeyboardController
-kb = KeyboardController()
-kb.send_hotkey(["ctrl", "g"])  # Should open Go to Line dialog
-
-# Test executor.py
-from controller import EditorController
-from models import EditorCommand
-controller = EditorController()
-cmd = EditorCommand(type="hotkey", payload={"keys": ["ctrl", "g"]})
-result = controller.execute(cmd)
-assert result["success"] == True
-```
+1. **Read existing code first** - Understand current implementation patterns
+2. **Follow established patterns** - Match existing code style and structure
+3. **Run automated tests** - Verify changes don't break existing functionality
+4. **Run ruff linter** - Ensure code quality standards
 
 ### 4. Handle Errors Gracefully
 
@@ -439,9 +411,53 @@ def focus_window(self, name: str) -> bool:
 
 ## Testing
 
-### Manual Verification Procedure
+### Automated Tests (pytest + pytest-mock)
 
-Since pygame build issues prevent automated tests, use manual verification:
+The project has comprehensive automated tests with mocked system dependencies (pywinauto, pygame, keyboard).
+
+```powershell
+cd local-program
+
+# Run unit tests (excludes integration tests requiring VS Code)
+.venv\Scripts\pytest.exe tests/ -v -m "not integration"
+# Expected: 74 passed, 6 deselected
+
+# Run ALL tests including integration
+.venv\Scripts\pytest.exe tests/ -v
+
+# Run specific test file
+.venv\Scripts\pytest.exe tests/test_models.py -v
+```
+
+### Test Structure
+
+| File | Tests | What it covers |
+|------|-------|---------------|
+| `test_models.py` | 21 | EditorCommand creation, from_legacy() conversion, payload validation, LocalStatus |
+| `test_controller.py` | 11 | Dispatch routing to correct handlers, IDLE↔BUSY state transitions, get_status() |
+| `test_edge_cases.py` | 20 | _select_best_title, app detection, ensure_window scenarios, launch_app, executor integration |
+| `test_scenarios.py` | 12 | New file, hello world, file+goto, formatting, full coding session sequences |
+| `test_integration.py` | 6 | End-to-end flows (marked @pytest.mark.integration, requires actual VS Code) |
+
+### Code Quality (ruff)
+
+```powershell
+# Lint
+.venv\Scripts\ruff.exe check controller/ models/ tests/
+
+# Format
+.venv\Scripts\ruff.exe format --check controller/ models/ tests/
+```
+
+### After making changes, ALWAYS:
+
+1. Run `pytest tests/ -m "not integration"` — all 74 tests must pass
+2. Run `ruff check controller/ models/ tests/` — must show "All checks passed!"
+3. Run `ruff format --check controller/ models/ tests/` — must show no reformatting needed
+
+### Manual Verification (Live Testing)
+
+For testing with actual VS Code (not a substitute for automated tests):
 
 #### 1. Window Management Test
 
@@ -562,21 +578,24 @@ time.sleep(0.2)  # Give it time to focus
 
 Before submitting your implementation, verify:
 
-- [ ] All comments in Korean (한글 주석)
-- [ ] Emoji prefixes used consistently
-- [ ] Section headers follow `# ===` pattern
-- [ ] All functions have docstrings with Examples
-- [ ] Type hints on all function signatures
-- [ ] No modifications to `main.py` (except `execute_mentor_logic()` body)
-- [ ] No modifications to `config.py` (except mentor settings section)
-- [ ] No modifications to `audio_handler.py`
-- [ ] No async/await introduced
-- [ ] No extra dependencies added
-- [ ] Hybrid approach used (pywinauto for windows, keyboard for input)
-- [ ] Special characters handled correctly
-- [ ] Errors handled gracefully (try/except)
-- [ ] Manual tests passed
-- [ ] Code follows separation of concerns
+- [x] All comments in Korean (한글 주석)
+- [x] Emoji prefixes used consistently
+- [x] Section headers follow `# ===` pattern
+- [x] All functions have docstrings with Examples
+- [x] Type hints on all function signatures
+- [x] No modifications to `main.py` (except `execute_mentor_logic()` body)
+- [x] No modifications to `config.py` (except mentor settings section)
+- [x] No modifications to `audio_handler.py`
+- [x] No async/await introduced
+- [x] No extra dependencies added
+- [x] Hybrid approach used (pywinauto for windows, keyboard for input)
+- [x] Special characters handled correctly
+- [x] Errors handled gracefully (try/except)
+- [x] Code follows separation of concerns
+- [x] All controller modules implemented
+- [ ] Automated tests pass (74/74)
+- [ ] ruff check passes
+- [ ] ruff format passes
 
 ## Questions?
 
@@ -590,12 +609,11 @@ When in doubt, **ask the user** rather than making assumptions.
 
 ## Final Notes
 
-This is a **student hackathon project** with tight deadlines. Prioritize:
+This is a **student hackathon project** with implementation complete. Current priorities:
 
-1. **Working code** over perfect code
-2. **Manual testing** over automated tests (due to pygame build issues)
-3. **Following conventions** over personal preferences
-4. **Mentor's scope** over expanding responsibilities
+1. **Maintaining existing tests** when making changes
+2. **Following established patterns** in existing code
+3. **Running automated tests + ruff** before submitting changes
 
 Remember: 문건호 handles server/audio, Mentor handles Windows automation. Stay in your lane.
 
