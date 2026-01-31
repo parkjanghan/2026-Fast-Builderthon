@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, ValidationError
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from services.voice_service import voice_service
+from services.voice_service import get_voice_service
 
 
 # ============================================================================
@@ -112,6 +112,8 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
 - should_pause: 강의를 일시정지해야 하면 true, 아니면 false
 - target_file: 편집 명령(type_text, goto_line, hotkey, save_file)일 때 반드시 대상 파일명을 포함해야 함 (예: "main.py", "app.js"). 로컬 에이전트가 올바른 파일을 열고 편집하기 위해 필수임. 화면에서 강사가 작업 중인 파일명을 읽어서 넣어줘.
 - expected_content: 편집 명령일 때 화면에 보이는 해당 파일의 현재 전체 코드 내용을 있는 그대로 넣어줘. 로컬 에이전트가 같은 이름의 다른 파일에 잘못 편집하는 것을 방지하기 위한 검증용임. 화면에 보이는 코드를 최대한 정확하게 읽어서 넣어줘. 화면에 일부만 보이면 보이는 부분만 넣어도 됨.
+- 절대 금지: 코드 실행 명령(F5, Ctrl+F5, Run, Debug 등)은 보내지 마. 우리 목적은 에디터 코드 동기화이지 실행이 아님. 강사가 코드를 실행하는 장면이면 type_text로 빈 content를 보내고 guidance에 "강사가 코드를 실행합니다"라고만 알려줘.
+- hotkey는 에디터 탐색용(Ctrl+G, Ctrl+S 등)만 허용. 실행/디버그 단축키는 금지.
 - 화면에 변화가 없거나 명령이 불필요하면 type을 "type_text", payload를 {"content": ""}, should_pause를 false로
 """
 
@@ -146,13 +148,14 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
                     f"payload={json.dumps(decision.payload, ensure_ascii=False)[:100]} "
                     f"pause={decision.should_pause}"
                 )
-                
-                # 음성 URL 생성 (guidance가 있으면)
+
+                # 음성 생성 (guidance가 있으면)
                 result = decision.model_dump()
                 if decision.guidance:
-                    audio_url = voice_service.queue_speech(decision.guidance)
+                    # 동적 스트리밍 큐에 등록 (로컬이 요청 시점에 생성)
+                    audio_url = get_voice_service().queue_speech(decision.guidance)
                     result["audio_url"] = audio_url
-                
+
                 return result
 
             except ValidationError as e:
@@ -305,24 +308,8 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
                         return json.loads(candidate)
                     except json.JSONDecodeError:
                         return None
-
+            
         return None
-
-    # ------------------------------------------------------------------
-    # 테스트
-    # ------------------------------------------------------------------
-    async def test_ask(self, question: str):
-        """연결 확인용 테스트 메서드"""
-        try:
-            response = await self.llm.ainvoke(
-                [
-                    SystemMessage(content="너는 친절한 도우미야."),
-                    HumanMessage(content=question),
-                ]
-            )
-            return response.content
-        except Exception as e:
-            return f"❌ 테스트 실패: {str(e)}"
 
 
 if __name__ == "__main__":

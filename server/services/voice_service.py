@@ -1,6 +1,7 @@
 """
 🔊 Voice Service - ElevenLabs TTS 음성 생성 (스트리밍 방식)
 """
+
 import os
 import uuid
 import httpx
@@ -110,5 +111,12 @@ class VoiceService:
             return None
 
 
-# 싱글톤 인스턴스
-voice_service = VoiceService()
+# 지연 초기화 싱글톤 (load_dotenv 이후에 생성되도록)
+_voice_service: VoiceService | None = None
+
+
+def get_voice_service() -> VoiceService:
+    global _voice_service
+    if _voice_service is None:
+        _voice_service = VoiceService()
+    return _voice_service

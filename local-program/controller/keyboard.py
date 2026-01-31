@@ -120,25 +120,35 @@ class KeyboardController:
             # 코드 입력 (여러 줄도 들여쓰기 정확)
             kb.type_text("def hello():\\n    print('Hello')")
         """
-        import ctypes
+        import os
+        import subprocess
+        import tempfile
 
-        # Windows Clipboard API로 텍스트 복사
-        CF_UNICODETEXT = 13
-        kernel32 = ctypes.windll.kernel32
-        user32 = ctypes.windll.user32
+        # 임시 파일에 텍스트 저장 후 PowerShell로 클립보드 복사
+        # stdin 파이프는 줄바꿈을 배열로 분리하여 개행이 손실될 수 있음
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", encoding="utf-8", delete=False
+            ) as tmp:
+                tmp.write(text)
+                tmp_path = tmp.name
 
-        user32.OpenClipboard(0)
-        user32.EmptyClipboard()
+            # Get-Content -Raw로 파일 전체를 단일 문자열로 읽어서 클립보드에 복사
+            ps_cmd = f'Set-Clipboard -Value (Get-Content -Raw -Encoding UTF8 "{tmp_path}")'
+            process = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_cmd],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
 
-        # 유니코드 문자열을 글로벌 메모리에 할당
-        data = text.encode("utf-16le") + b"\x00\x00"
-        h_mem = kernel32.GlobalAlloc(0x0042, len(data))  # GMEM_MOVEABLE | GMEM_ZEROINIT
-        ptr = kernel32.GlobalLock(h_mem)
-        ctypes.memmove(ptr, data, len(data))
-        kernel32.GlobalUnlock(h_mem)
+            if process.returncode != 0:
+                raise RuntimeError(f"클립보드 복사 실패: {process.stderr}")
 
-        user32.SetClipboardData(CF_UNICODETEXT, h_mem)
-        user32.CloseClipboard()
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
         time.sleep(0.05)
 

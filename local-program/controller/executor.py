@@ -160,6 +160,18 @@ class EditorController:
                 case _:
                     raise ValueError(f"알 수 없는 명령 타입: {command.type}")
 
+            # 명령 실행 후 다이얼로그 정리 (Ctrl+F5 등이 팝업을 띄울 수 있음)
+            time.sleep(0.3)
+            self._dismiss_stale_dialogs()
+
+            # 편집 명령 후 Ctrl+S로 저장 (디스크 ↔ VS Code 동기화)
+            if command.type in editing_commands:
+                try:
+                    time.sleep(0.2)
+                    self.keyboard_controller.send_hotkey(["ctrl", "s"])
+                except Exception:
+                    pass
+
             return result
 
         finally:
@@ -243,6 +255,13 @@ class EditorController:
                 "열기",
                 "Open",
                 "파일 이름이 올바르지",
+                "extension",
+                "Marketplace",
+                "Don't Show Again",
+                "Do you want",
+                "Would you like",
+                "Cannot find",
+                "Unable to",
             ]
             if any(kw in active for kw in dialog_keywords):
                 print(f"⚠️ 잔여 다이얼로그 감지: '{active}'")
@@ -504,6 +523,11 @@ class EditorController:
             print(f"📝 서버의 expected_content로 파일 덮어쓰기: {file_path}")
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(expected_content)
+
+            # VS Code에 파일 리로드 명령 (디스크 변경을 에디터에 반영)
+            time.sleep(0.3)
+            self.keyboard_controller.send_command_palette("Revert File")
+            time.sleep(0.5)
             print(f"✅ 파일 내용 동기화 완료: {os.path.basename(file_path)}")
 
         except Exception as e:

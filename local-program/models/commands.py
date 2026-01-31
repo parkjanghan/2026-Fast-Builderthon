@@ -181,11 +181,19 @@ class EditorCommand(BaseModel):
 
         elif action == "hotkey":
             cmd_type = "hotkey"
-            # content가 "ctrl+g" 형식이면 파싱
-            if isinstance(content, str):
+            # params에 keys 리스트가 있으면 우선 사용, content가 리스트여도 OK
+            raw_keys = merged.get("keys")
+            if isinstance(raw_keys, list) and raw_keys:
+                keys = raw_keys
+            elif isinstance(content, list) and content:
+                keys = content
+            elif isinstance(content, str) and content:
+                # content가 "ctrl+g" 형식이면 파싱 (레거시)
                 keys = [k.strip() for k in content.split("+")]
             else:
-                keys = content if isinstance(content, list) else []
+                keys = []
+            # 빈 문자열 키 제거
+            keys = [k for k in keys if k]
             payload = {"keys": keys}
 
         elif action == "goto_line":
