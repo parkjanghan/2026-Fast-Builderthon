@@ -147,10 +147,10 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
                     f"pause={decision.should_pause}"
                 )
                 
-                # 음성 생성 (guidance가 있으면)
+                # 음성 URL 생성 (guidance가 있으면)
                 result = decision.model_dump()
                 if decision.guidance:
-                    audio_url = await voice_service.generate_speech(decision.guidance)
+                    audio_url = voice_service.queue_speech(decision.guidance)
                     result["audio_url"] = audio_url
                 
                 return result
