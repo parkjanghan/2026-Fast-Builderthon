@@ -1,21 +1,47 @@
+# ============================================================================
+# 📦 pyproject.toml - 2026년 1월 기준 최신 버전 (Merged)
+# ============================================================================
+#
+# Python 3.14.2 (2025년 12월 출시) 호환
+# Part 3 로컬 에이전트 (건호) + 윈도우 제어 (멘토) 통합 의존성
+#
+# ============================================================================
+
 [project]
 name = "part3-local-agent"
 version = "0.1.0"
 description = "AI 해커톤 Part 3 - 로컬 에이전트 (Windows 제어)"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 
 dependencies = [
-    "python-socketio[client]>=5.10.0",
-    "requests>=2.31.0",
-    "pygame>=2.5.0",
+    # 📡 통신 & 오디오 (건호)
+    "websockets~=16.0",          # 2026-01-10 최신 (순수 WebSocket)
+    "requests~=2.32.5",          # 2025-08-18 최신
+    "playsound3~=3.3.1",         # 2026-01-22 최신 (경량 오디오)
+    
+    # 🎮 윈도우 제어 & 로직 (멘토)
+    "pywinauto>=0.6.9",          # Windows UI 자동화
+    "pygetwindow>=0.0.9",        # 창 정보 가져오기
+    "keyboard>=0.13.5",          # 키보드 입력 제어
+    "pydantic>=2.0",             # 데이터 모델링
+    "pyyaml>=6.0",               # 설정 파일 처리
 ]
 
-[project.optional-dependencies]
-windows = [
-    "pywinauto>=0.6.8",
-    "pygetwindow>=0.0.9",
+[project.scripts]
+syncsight-local = "main:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+    "ruff>=0.14",
 ]
 
-[tool.uv]
-dev-dependencies = []
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501", "B905"]

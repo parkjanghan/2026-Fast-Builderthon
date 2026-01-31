@@ -3,61 +3,30 @@
 # ============================================================================
 # 
 # 🎯 역할: 
-#   서버 URL, 재연결 설정, 이벤트 이름 등 모든 설정값을 한 곳에서 관리합니다.
-#   나중에 환경이 바뀌어도 이 파일만 수정하면 됩니다.
+#   서버 URL, 재연결 설정 등 모든 설정값을 한 곳에서 관리합니다.
 #
 # 📝 멘토님께:
 #   pywinauto 관련 설정이 필요하시면 이 파일 하단에 추가해 주세요.
-#   예: WINDOW_TITLE_PATTERN = "Visual Studio Code"
 #
 # ============================================================================
 
 # -----------------------------------------------------------------------------
-# 🌐 서버 연결 설정 (Part 2 담당자에게 확인 필요!)
+# 🌐 서버 연결 설정
 # -----------------------------------------------------------------------------
 
-# 서버 URL (재준님께 받은 주소로 교체 필요)
-# 예: "https://project-name.replit.app"
-SERVER_URL = "http://localhost:5000"
+# 재준 님 WebSocket 서버 주소
+SERVER_URL = "wss://5920da4b-c27b-4df6-9297-f7d4ec4f329f-00-st4gdos7kox3.riker.replit.dev/ws"
 
-# 웹소켓 연결 타임아웃 (초)
+# 연결 타임아웃 (초)
 CONNECTION_TIMEOUT = 10
 
 # 자동 재연결 설정
-RECONNECT_ENABLED = True          # 연결 끊김 시 자동 재연결 여부
+RECONNECT_ENABLED = True          # 연결 끊김 시 자동 재연결
 RECONNECT_DELAY = 2               # 재연결 시도 간격 (초)
-RECONNECT_MAX_ATTEMPTS = 10       # 최대 재연결 시도 횟수 (0 = 무제한)
+RECONNECT_MAX_ATTEMPTS = 10       # 최대 재연결 횟수 (0 = 무제한)
 
 # -----------------------------------------------------------------------------
-# 📡 웹소켓 이벤트 이름 (Part 2 담당자와 맞춰야 함!)
-# -----------------------------------------------------------------------------
-
-# 서버 → 로컬: 명령 수신 이벤트
-EVENT_EDITOR_SYNC = "editor_sync"           # 에디터 조작 명령
-EVENT_LECTURE_PAUSE = "lecture_pause"       # 강의 일시정지 신호 (Pause-and-Explain 용)
-EVENT_LECTURE_RESUME = "lecture_resume"     # 강의 재개 신호
-
-# 로컬 → 서버: 상태 보고 이벤트
-EVENT_LOCAL_STATUS = "local_status"         # 로컬 상태 보고
-EVENT_TASK_COMPLETE = "task_complete"       # 작업 완료 알림
-
-# -----------------------------------------------------------------------------
-# 🔊 오디오 설정
-# -----------------------------------------------------------------------------
-
-# 오디오 캐시 폴더 (다운로드한 MP3 임시 저장)
-AUDIO_CACHE_DIR = ".audio_cache"
-
-# 오디오 다운로드 타임아웃 (초)
-AUDIO_DOWNLOAD_TIMEOUT = 30
-
-# pygame 믹서 설정
-AUDIO_FREQUENCY = 44100    # 샘플링 주파수
-AUDIO_CHANNELS = 2         # 스테레오
-AUDIO_BUFFER = 2048        # 버퍼 크기
-
-# -----------------------------------------------------------------------------
-# ⏱️ 상태 보고 설정
+# 📊 상태 보고 설정
 # -----------------------------------------------------------------------------
 
 # 서버에 로컬 상태를 보고하는 간격 (초)
@@ -68,11 +37,25 @@ STATUS_REPORT_INTERVAL = 1.0
 # -----------------------------------------------------------------------------
 # 
 # 아래에 pywinauto 관련 설정을 추가해 주세요!
+# 
 # 예시:
-#   TARGET_APPLICATION = "notepad.exe"
-#   TYPING_DELAY = 0.05  # 타이핑 딜레이 (초)
+#   TARGET_WINDOW_PATTERN = ".*Visual Studio Code.*"
+#   TYPING_DELAY = 0.02  # 타이핑 딜레이 (초)
+#   CLICK_DELAY = 0.1    # 클릭 후 딜레이 (초)
 #
 
-# [멘토님 설정 추가 공간]
+# 🎯 대상 에디터 설정
+TARGET_EDITOR = "Visual Studio Code"
 
+# 📂 프로젝트 폴더 경로 (VS Code 다중 창 시 이 프로젝트를 우선 선택)
+# 예: r"C:\Users\student\my-project"
+TARGET_PROJECT_PATH = ""
 
+# 🚀 앱 자동 실행 설정
+AUTO_LAUNCH_ENABLED = True         # 앱이 꺼져있으면 자동 실행
+APP_LAUNCH_TIMEOUT = 15            # 앱 실행 후 창이 뜰 때까지 대기 (초)
+APP_LAUNCH_POLL_INTERVAL = 0.5     # 창 감지 폴링 간격 (초)
+
+# 💻 VS Code 실행 경로 (비워두면 PATH에서 "code" 검색)
+# 예: r"C:\Users\student\AppData\Local\Programs\Microsoft VS Code\Code.exe"
+VSCODE_EXE_PATH = r"C:\Users\owjs3\AppData\Local\Programs\Microsoft VS Code\Code.exe"
