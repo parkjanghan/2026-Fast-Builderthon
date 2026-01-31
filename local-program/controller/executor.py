@@ -645,6 +645,13 @@ class EditorController:
         """
         content = payload.get("content", "")
         try:
+            if not content:
+                # 빈 content는 "음성 가이드만" 의미 — 타이핑 없이 성공 반환
+                return {
+                    "success": True,
+                    "message": "✅ 텍스트 입력 스킵 (빈 content — 음성 가이드만)",
+                    "timestamp": time.time(),
+                }
             self.keyboard_controller.type_text(content)
             preview = content[:30] + "..." if len(content) > 30 else content
             return {

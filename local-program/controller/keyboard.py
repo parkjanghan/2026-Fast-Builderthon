@@ -120,6 +120,9 @@ class KeyboardController:
             # 코드 입력 (여러 줄도 들여쓰기 정확)
             kb.type_text("def hello():\\n    print('Hello')")
         """
+        if not text:
+            return
+
         import os
         import subprocess
         import tempfile
