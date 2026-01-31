@@ -1,77 +1,253 @@
 import os
+import re
 import json
 import asyncio
+from typing import Literal, Optional
+
+from pydantic import BaseModel, Field, ValidationError
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_core.messages import HumanMessage, SystemMessage
 
 
+# ============================================================================
+# 📦 AI 응답 검증용 Pydantic 모델 (local-program EditorCommand와 1:1 대응)
+# ============================================================================
+
+VALID_TYPES = Literal[
+    "focus_window",
+    "hotkey",
+    "type_text",
+    "command_palette",
+    "open_file",
+    "goto_line",
+    "open_folder",
+    "save_file",
+]
+
+
+class AIDecision(BaseModel):
+    """AI가 반환해야 하는 구조화된 의사결정"""
+
+    type: VALID_TYPES
+    payload: dict
+    guidance: str = ""
+    should_pause: bool = False
+
+
+# ============================================================================
+# 🧠 AI Service
+# ============================================================================
+
+
 class AIService:
+    MAX_RETRIES = 1  # 검증 실패 시 재시도 횟수
 
     def __init__(self):
-        # NVIDIA NIM 연결 설정 (Secrets에 등록된 API Key 사용)
-        self.llm = ChatNVIDIA(model="meta/llama-3.2-11b-vision-instruct",
-                              nvidia_api_key=os.getenv("NVIDIA_API_KEY"))
+        self.llm = ChatNVIDIA(
+            model="meta/llama-3.2-11b-vision-instruct",
+            nvidia_api_key=os.getenv("NVIDIA_API_KEY"),
+        )
 
-        # 시각장애인 수강생을 위한 전용 페르소나 및 출력 규격 정의
-        self.system_prompt = """
-        너는 시각장애인 수강생을 위해 강의 영상 속 강사의 동작을 분석하고 에디터를 제어하는 AI 에이전트야.
-        강의 화면(이미지)을 분석하여 수강생이 따라해야 할 동작을 판단하고, 반드시 아래 JSON 형식으로만 응답해.
+        # local-program/models/commands.py EditorCommand 스키마와 정확히 일치하는 프롬프트
+        self.system_prompt = """너는 시각장애인 수강생을 위해 강의 영상 속 강사의 동작을 분석하고 에디터를 제어하는 AI 에이전트야.
+강의 화면(이미지)과 자막(transcript)을 분석하여 수강생이 따라해야 할 동작을 판단하고, 반드시 아래 JSON 형식으로만 응답해.
+JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
 
-        [명령어 타입 가이드]
-        - focus_window: 창 전환이 필요할 때 (예: 브라우저에서 VS Code로)
-        - hotkey: 단축키 실행 (예: ['ctrl', 's'], ['ctrl', 'g'])
-        - type_text: 코드나 텍스트 입력
-        - goto_line: 특정 라인으로 이동
-        - save_file: 파일 저장
+[명령어 타입 + payload 스키마]
 
-        [응답 형식]
-        {
-          "type": "명령어타입",
-          "payload": { "해당 스키마의 필드" },
-          "guidance": "스크린리더가 읽어줄 친절한 설명",
-          "should_pause": true/false
-        }
+1. focus_window — 창 전환
+   payload: { "window_title": "Visual Studio Code" }
+
+2. hotkey — 단축키 실행
+   payload: { "keys": ["ctrl", "s"] }
+
+3. type_text — 코드/텍스트 입력
+   payload: { "content": "print('hello')" }
+
+4. command_palette — VS Code 명령 팔레트
+   payload: { "command": "Go to Line" }
+
+5. open_file — 파일 열기
+   payload: { "file_path": "C:/project/main.py" }
+
+6. goto_line — 특정 라인으로 이동
+   payload: { "line_number": 42 }
+   (선택) payload: { "line_number": 42, "column": 10 }
+
+7. open_folder — 폴더 열기
+   payload: { "folder_path": "C:/project", "new_window": false }
+
+8. save_file — 파일 저장
+   payload: { "file_name": null, "folder_path": null }
+
+[응답 형식 — 반드시 이 JSON만 출력]
+{
+  "type": "명령어타입",
+  "payload": { ... 위 스키마에 맞는 필드 ... },
+  "guidance": "스크린리더가 읽어줄 친절한 한국어 설명",
+  "should_pause": true 또는 false
+}
+
+[규칙]
+- type은 위 8가지 중 하나여야 함
+- payload는 해당 타입의 스키마를 정확히 따라야 함
+- guidance는 시각장애인이 이해할 수 있도록 친절하게 작성
+- should_pause: 강의를 일시정지해야 하면 true, 아니면 false
+- 화면에 변화가 없거나 명령이 불필요하면 type을 "type_text", payload를 {"content": ""}, should_pause를 false로
+"""
+
+    # ------------------------------------------------------------------
+    # 핵심 메서드
+    # ------------------------------------------------------------------
+    async def analyze_and_decide(
+        self,
+        image_b64: str,
+        local_status: str,
+        transcript_context: list[str] | None = None,
+    ) -> dict:
         """
+        NVIDIA NIM VLM으로 화면 분석 → Pydantic 검증 → 실패 시 재시도.
 
-    async def analyze_and_decide(self, image_b64: str, local_status: str):
+        Returns:
+            AIDecision과 동일한 구조의 dict (type, payload, guidance, should_pause)
         """
-        NVIDIA NIM을 통해 화면을 분석하고 구조화된 의사결정 데이터를 반환합니다.
-        """
-        content = [{
-            "type": "text",
-            "text": f"현재 로컬 상태: {local_status}. 화면 분석 후 필요한 명령을 내려줘."
-        }, {
-            "type": "image_url",
-            "image_url": {
-                "url": image_b64
-            }
-        }]
+        messages = self._build_messages(image_b64, local_status, transcript_context)
 
+        for attempt in range(1 + self.MAX_RETRIES):
+            try:
+                response = await self.llm.ainvoke(messages)
+                raw_json = self._extract_json(response.content)
+                decision = AIDecision.model_validate(raw_json)
+                return decision.model_dump()
+
+            except ValidationError as e:
+                if attempt < self.MAX_RETRIES:
+                    # 재시도: 검증 에러를 피드백으로 제공
+                    error_msg = str(e)
+                    print(
+                        f"⚠️ AI 응답 검증 실패 (재시도 {attempt + 1}): {error_msg[:100]}"
+                    )
+                    messages.append(
+                        HumanMessage(
+                            content=(
+                                f"응답이 스키마 검증에 실패했어. 에러: {error_msg}\n"
+                                "위 스키마를 정확히 따라서 JSON만 다시 출력해줘."
+                            )
+                        )
+                    )
+                else:
+                    print(f"❌ AI 응답 검증 최종 실패: {e}")
+                    return self._fallback_decision("응답이 올바른 형식이 아닙니다.")
+
+            except (ValueError, json.JSONDecodeError) as e:
+                if attempt < self.MAX_RETRIES:
+                    print(f"⚠️ JSON 추출 실패 (재시도 {attempt + 1}): {e}")
+                    messages.append(
+                        HumanMessage(
+                            content=(
+                                "JSON 파싱에 실패했어. 반드시 순수 JSON만 출력해. "
+                                "마크다운이나 설명 텍스트 없이 { ... } 만 응답해줘."
+                            )
+                        )
+                    )
+                else:
+                    print(f"❌ JSON 추출 최종 실패: {e}")
+                    return self._fallback_decision("JSON을 추출할 수 없습니다.")
+
+            except Exception as e:
+                print(f"❌ AI 분석 실패: {e}")
+                return self._fallback_decision(
+                    "화면을 분석하는 중 오류가 발생했습니다."
+                )
+
+        return self._fallback_decision("알 수 없는 오류")
+
+    # ------------------------------------------------------------------
+    # 내부 헬퍼
+    # ------------------------------------------------------------------
+    def _build_messages(
+        self,
+        image_b64: str,
+        local_status: str,
+        transcript_context: list[str] | None,
+    ) -> list:
+        """LLM 호출용 메시지 리스트 구성"""
+        text_parts = [f"현재 로컬 상태: {local_status}."]
+
+        if transcript_context:
+            recent = "\n".join(transcript_context[-5:])
+            text_parts.append(f"최근 강의 자막:\n{recent}")
+
+        text_parts.append(
+            "화면을 분석하고 수강생이 따라해야 할 명령을 JSON으로 내려줘."
+        )
+
+        content = [
+            {"type": "text", "text": "\n\n".join(text_parts)},
+            {"type": "image_url", "image_url": {"url": image_b64}},
+        ]
+
+        return [
+            SystemMessage(content=self.system_prompt),
+            HumanMessage(content=content),
+        ]
+
+    @staticmethod
+    def _fallback_decision(reason: str) -> dict:
+        """검증/파싱 실패 시 안전한 기본 응답"""
+        return AIDecision(
+            type="type_text",
+            payload={"content": ""},
+            guidance=reason,
+            should_pause=True,
+        ).model_dump()
+
+    @staticmethod
+    def _extract_json(text: str) -> dict:
+        """
+        AI 응답에서 JSON을 추출합니다.
+        1차: 직접 파싱
+        2차: ```json ... ``` 코드블록 추출
+        3차: 첫 번째 { ... } 매칭
+        """
+        text = text.strip()
+
+        # 1차: 직접 파싱
         try:
-            response = await self.llm.ainvoke([
-                SystemMessage(content=self.system_prompt),
-                HumanMessage(content=content)
-            ])
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
 
-            # AI 응답에서 JSON 추출 및 파싱
-            result = json.loads(response.content)
-            return result
-        except Exception as e:
-            print(f"❌ AI 분석 실패: {str(e)}")
-            return {
-                "type": "type_text",
-                "payload": {},
-                "guidance": "화면을 분석하는 중 오류가 발생했습니다.",
-                "should_pause": True
-            }
+        # 2차: 마크다운 코드블록 추출
+        match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1).strip())
+            except json.JSONDecodeError:
+                pass
 
+        # 3차: 첫 번째 { ... } 브레이스 매칭
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except json.JSONDecodeError:
+                pass
+
+        raise ValueError(f"AI 응답에서 JSON을 추출할 수 없습니다: {text[:200]}")
+
+    # ------------------------------------------------------------------
+    # 테스트
+    # ------------------------------------------------------------------
     async def test_ask(self, question: str):
         """연결 확인용 테스트 메서드"""
         try:
-            response = await self.llm.ainvoke([
-                SystemMessage(content="너는 친절한 도우미야."),
-                HumanMessage(content=question)
-            ])
+            response = await self.llm.ainvoke(
+                [
+                    SystemMessage(content="너는 친절한 도우미야."),
+                    HumanMessage(content=question),
+                ]
+            )
             return response.content
         except Exception as e:
             return f"❌ 테스트 실패: {str(e)}"

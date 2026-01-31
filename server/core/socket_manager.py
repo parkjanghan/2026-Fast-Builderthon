@@ -176,7 +176,7 @@ class WebSocketManager:
         NVIDIA NIM 분석 후 Local Agent에 명령 전송 + Extension에 상태 공유
         """
         decision = await self.ai_service.analyze_and_decide(
-            image_b64, self.last_local_status
+            image_b64, self.last_local_status, self.transcript_context
         )
         t = self._now_str()
 
