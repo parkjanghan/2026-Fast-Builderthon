@@ -1,0 +1,14 @@
+{
+  "name": "video-capture-test-server",
+  "version": "1.0.0",
+  "description": "Test WebSocket server for Video Capture Extension",
+  "main": "test-server.js",
+  "scripts": {
+    "start": "node test-server.js"
+  },
+  "dependencies": {
+    "ws": "^8.14.0",
+    "node-fetch": "^2.7.0",
+    "form-data": "^4.0.0"
+  }
+}
