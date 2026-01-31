@@ -6,6 +6,7 @@ from core.socket_manager import WebSocketManager
 # server/.env 로드
 load_dotenv(Path(__file__).parent / ".env")
 
+print(os.getenv("NVIDIA_API_KEY"))
 
 async def init_app():
     app = web.Application(client_max_size=1024**2 * 20)
