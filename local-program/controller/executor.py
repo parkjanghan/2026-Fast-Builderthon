@@ -260,71 +260,156 @@ class EditorController:
 
     def _ensure_correct_file(self, target_file: str) -> None:
         """
-        📋 편집 명령 실행 전 올바른 파일이 열려있는지 검증
+        📋 편집 명령 실행 전 올바른 워크스페이스 + 파일이 열려있는지 검증
 
-        VS Code 창 제목 형식: "filename - project_folder - Visual Studio Code"
-        현재 활성 탭의 파일명이 target_file과 일치하는지 확인하고,
-        불일치하면 open_file로 해당 파일을 열어서 전환합니다.
+        검증 순서:
+          1. VS Code가 활성 창인지 확인 → 아니면 포커스/실행
+          2. 워크스페이스가 올바른지 타이틀로 확인 → 아니면 폴더 열기
+          3. 대상 파일이 열려있는지 확인 → 아니면 code CLI로 파일 열기
+
+        VS Code 타이틀 형식:
+          "filename - project_folder - Visual Studio Code"
+          "● filename - project_folder - Visual Studio Code" (수정됨)
+          "Welcome - Visual Studio Code" (워크스페이스 없음)
 
         Args:
-            target_file (str): 편집 대상 파일명 (예: "main.py", "app.js")
+            target_file (str): 편집 대상 파일명 (예: "main.py", "practice.py")
 
         Example:
-            self._ensure_correct_file("main.py")
-            # VS Code 타이틀이 "app.py - project - VS Code"이면
-            # → Ctrl+P로 main.py를 열어서 전환
+            self._ensure_correct_file("practice.py")
         """
         if not target_file:
             return
 
+        import os
+        import subprocess
+
         try:
-            import os
+            target_name = os.path.basename(target_file)
 
-            # 현재 활성 창 제목에서 파일명 추출
-            active_title = self.window_manager.get_active_window_title()
-            if not active_title:
-                return
+            # config에서 프로젝트 경로 가져오기
+            project_path = ""
+            try:
+                from config import TARGET_PROJECT_PATH
 
-            # VS Code가 아닌 경우 → VS Code 먼저 포커스
-            if "Visual Studio Code" not in active_title and "Code" not in active_title:
-                print(f"⚠️ 현재 활성 창이 VS Code가 아닙니다: '{active_title}'")
-                self.window_manager.ensure_window("Visual Studio Code", auto_launch=True)
-                time.sleep(0.5)
+                project_path = TARGET_PROJECT_PATH
+            except (ImportError, AttributeError):
+                pass
+
+            # VS Code exe 경로
+            exe_path = ""
+            try:
+                from config import VSCODE_EXE_PATH
+
+                exe_path = VSCODE_EXE_PATH
+            except (ImportError, AttributeError):
+                pass
+
+            # ----------------------------------------------------------------
+            # 1단계: VS Code가 활성 창인지 확인
+            # ----------------------------------------------------------------
+            active_title = self.window_manager.get_active_window_title() or ""
+
+            if "Visual Studio Code" not in active_title:
+                print(f"⚠️ VS Code가 활성 창이 아닙니다: '{active_title}'")
+                # 워크스페이스로 VS Code 열기 시도
+                if project_path and exe_path and os.path.exists(exe_path):
+                    print(f"🚀 VS Code를 워크스페이스와 함께 실행: {project_path}")
+                    subprocess.Popen([exe_path, project_path])
+                    # 창이 뜰 때까지 대기
+                    for _ in range(30):
+                        time.sleep(0.5)
+                        if self.window_manager.focus_window(
+                            "Visual Studio Code", project_hint=os.path.basename(project_path)
+                        ):
+                            break
+                    time.sleep(1.0)
+                else:
+                    self.window_manager.ensure_window("Visual Studio Code", auto_launch=True)
+                    time.sleep(1.0)
+
                 active_title = self.window_manager.get_active_window_title() or ""
 
-            # VS Code 타이틀에서 현재 파일명 추출
-            # 형식: "filename - project_folder - Visual Studio Code"
-            # 또는: "● filename - project_folder - Visual Studio Code" (수정됨)
-            current_file = active_title.split(" - ")[0].strip()
-            # "●" 등 수정 표시 제거
-            current_file = current_file.lstrip("● ").strip()
+            # ----------------------------------------------------------------
+            # 2단계: 워크스페이스가 올바른지 확인
+            # ----------------------------------------------------------------
+            if project_path:
+                project_name = os.path.basename(project_path)
 
-            # 파일명만 비교 (경로 제거)
-            target_name = os.path.basename(target_file)
+                # 타이틀에 프로젝트명이 없으면 → Welcome 탭이거나 다른 워크스페이스
+                if project_name.lower() not in active_title.lower():
+                    print(f"⚠️ 워크스페이스 불일치: '{active_title}' (기대: {project_name})")
+                    print(f"📂 올바른 워크스페이스를 열고 있습니다: {project_path}")
+
+                    # code CLI로 폴더 열기 (--reuse-window로 현재 창에서)
+                    if exe_path and os.path.exists(exe_path):
+                        subprocess.Popen([exe_path, project_path])
+                    else:
+                        subprocess.Popen(f'code "{project_path}"', shell=True)
+
+                    # 워크스페이스가 로드될 때까지 대기
+                    for _ in range(30):
+                        time.sleep(0.5)
+                        title = self.window_manager.get_active_window_title() or ""
+                        if project_name.lower() in title.lower():
+                            print(f"✅ 워크스페이스 로드 완료: {project_name}")
+                            break
+                    else:
+                        print("⚠️ 워크스페이스 로드 타임아웃 (계속 진행)")
+
+                    time.sleep(1.5)  # VS Code가 완전히 로드될 시간
+                    active_title = self.window_manager.get_active_window_title() or ""
+
+            # ----------------------------------------------------------------
+            # 3단계: 대상 파일이 열려있는지 확인
+            # ----------------------------------------------------------------
+            # 타이틀에서 현재 파일명 추출
+            current_file = active_title.split(" - ")[0].strip()
+            current_file = current_file.lstrip("● ").strip()
 
             if current_file.lower() == target_name.lower():
                 print(f"✅ 올바른 파일에서 작업 중: {target_name}")
                 return
 
-            # 불일치 → Quick Open (Ctrl+P)으로 파일 전환
             print(f"⚠️ 파일 불일치: 현재='{current_file}', 대상='{target_name}'")
-            print(f"🔄 Ctrl+P로 '{target_name}' 파일로 전환합니다...")
 
-            import keyboard as kb
+            # code CLI로 파일 직접 열기 (Quick Open보다 안정적)
+            if project_path and exe_path and os.path.exists(exe_path):
+                # 파일이 없으면 빈 파일 생성
+                full_path = os.path.join(project_path, target_name)
+                if not os.path.exists(full_path):
+                    print(f"📄 파일이 없어서 새로 생성: {full_path}")
+                    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                    with open(full_path, "w", encoding="utf-8") as f:
+                        f.write("")
 
-            # Ctrl+P (Quick Open)
-            kb.send("ctrl+p")
-            time.sleep(0.5)
+                print(f"📂 code CLI로 파일 열기: {full_path}")
+                subprocess.Popen([exe_path, "--reuse-window", full_path])
+            else:
+                # exe가 없으면 code CLI 시도
+                full_path = os.path.join(project_path, target_name) if project_path else target_name
+                if project_path and not os.path.exists(full_path):
+                    os.makedirs(
+                        os.path.dirname(full_path) if os.path.dirname(full_path) else project_path,
+                        exist_ok=True,
+                    )
+                    with open(full_path, "w", encoding="utf-8") as f:
+                        f.write("")
+                subprocess.Popen(f'code --reuse-window "{full_path}"', shell=True)
 
-            # 파일명 입력
-            self.keyboard_controller.type_text(target_name)
-            time.sleep(0.3)
+            # 파일이 열릴 때까지 대기 + 확인
+            for _ in range(20):
+                time.sleep(0.5)
+                title = self.window_manager.get_active_window_title() or ""
+                opened_file = title.split(" - ")[0].strip().lstrip("● ").strip()
+                if opened_file.lower() == target_name.lower():
+                    print(f"✅ 파일 열기 완료: {target_name}")
+                    # 포커스 확실히 맞추기
+                    self.window_manager.focus_window("Visual Studio Code")
+                    time.sleep(0.3)
+                    return
 
-            # Enter로 선택
-            kb.send("enter")
-            time.sleep(0.5)
-
-            print(f"✅ 파일 전환 완료: {target_name}")
+            print(f"⚠️ 파일 열기 타임아웃: {target_name} (계속 진행)")
 
         except Exception as e:
             print(f"⚠️ 파일 컨텍스트 검증 실패 (계속 진행): {e}")

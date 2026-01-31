@@ -1,8 +1,8 @@
 # ============================================================================
 # 📁 config.py - 설정값 관리 모듈
 # ============================================================================
-# 
-# 🎯 역할: 
+#
+# 🎯 역할:
 #   서버 URL, 재연결 설정 등 모든 설정값을 한 곳에서 관리합니다.
 #
 # 📝 멘토님께:
@@ -21,9 +21,9 @@ SERVER_URL = "wss://5920da4b-c27b-4df6-9297-f7d4ec4f329f-00-st4gdos7kox3.riker.r
 CONNECTION_TIMEOUT = 10
 
 # 자동 재연결 설정
-RECONNECT_ENABLED = True          # 연결 끊김 시 자동 재연결
-RECONNECT_DELAY = 2               # 재연결 시도 간격 (초)
-RECONNECT_MAX_ATTEMPTS = 10       # 최대 재연결 횟수 (0 = 무제한)
+RECONNECT_ENABLED = True  # 연결 끊김 시 자동 재연결
+RECONNECT_DELAY = 2  # 재연결 시도 간격 (초)
+RECONNECT_MAX_ATTEMPTS = 10  # 최대 재연결 횟수 (0 = 무제한)
 
 # -----------------------------------------------------------------------------
 # 📊 상태 보고 설정
@@ -35,9 +35,9 @@ STATUS_REPORT_INTERVAL = 1.0
 # -----------------------------------------------------------------------------
 # 🛠️ 멘토님 전용 설정 구역
 # -----------------------------------------------------------------------------
-# 
+#
 # 아래에 pywinauto 관련 설정을 추가해 주세요!
-# 
+#
 # 예시:
 #   TARGET_WINDOW_PATTERN = ".*Visual Studio Code.*"
 #   TYPING_DELAY = 0.02  # 타이핑 딜레이 (초)
@@ -48,13 +48,13 @@ STATUS_REPORT_INTERVAL = 1.0
 TARGET_EDITOR = "Visual Studio Code"
 
 # 📂 프로젝트 폴더 경로 (VS Code 다중 창 시 이 프로젝트를 우선 선택)
-# 예: r"C:\Users\student\my-project"
-TARGET_PROJECT_PATH = ""
+# 이 경로의 워크스페이스를 VS Code에서 열고, 파일 편집도 이 안에서 수행
+TARGET_PROJECT_PATH = r"C:\Users\owjs3\Desktop\PythonWorkspace"
 
 # 🚀 앱 자동 실행 설정
-AUTO_LAUNCH_ENABLED = True         # 앱이 꺼져있으면 자동 실행
-APP_LAUNCH_TIMEOUT = 15            # 앱 실행 후 창이 뜰 때까지 대기 (초)
-APP_LAUNCH_POLL_INTERVAL = 0.5     # 창 감지 폴링 간격 (초)
+AUTO_LAUNCH_ENABLED = True  # 앱이 꺼져있으면 자동 실행
+APP_LAUNCH_TIMEOUT = 15  # 앱 실행 후 창이 뜰 때까지 대기 (초)
+APP_LAUNCH_POLL_INTERVAL = 0.5  # 창 감지 폴링 간격 (초)
 
 # 💻 VS Code 실행 경로 (비워두면 PATH에서 "code" 검색)
 # 예: r"C:\Users\student\AppData\Local\Programs\Microsoft VS Code\Code.exe"
