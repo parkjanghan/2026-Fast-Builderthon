@@ -1,5 +1,10 @@
+from pathlib import Path
+from dotenv import load_dotenv
 from aiohttp import web
 from core.socket_manager import WebSocketManager
+
+# server/.env 로드
+load_dotenv(Path(__file__).parent / ".env")
 
 
 async def init_app():
@@ -10,13 +15,12 @@ async def init_app():
         return web.Response(text="Central Hub Running")
 
     # 라우팅 설정
-    app.add_routes([
-        web.get('/ws', manager.websocket_handler),
-        web.get('/', index_handler)
-    ])
+    app.add_routes(
+        [web.get("/ws", manager.websocket_handler), web.get("/", index_handler)]
+    )
     return app
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app = init_app()
-    web.run_app(app, host='0.0.0.0', port=5000)
+    web.run_app(app, host="0.0.0.0", port=5000)
