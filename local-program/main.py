@@ -171,52 +171,23 @@ def execute_mentor_logic(command_data: Dict[str, Any]) -> Any:
         Output:
         True  # 또는 {"success": True, "line": 15}
     """
-    print("")
-    print("=" * 60)
-    print("🎯 [멘토님 전용] execute_mentor_logic() 호출됨!")
-    print("=" * 60)
+    from controller import EditorController
+    from models.commands import EditorCommand
     
-    action = command_data.get("action", "UNKNOWN")
-    params = command_data.get("params", {})
-    
-    print(f"   📋 액션: {action}")
-    print(f"   📦 파라미터: {json.dumps(params, ensure_ascii=False)}")
-    print("")
-    print("   ⚠️  여기에 pywinauto 로직을 구현해 주세요!")
-    print("   💡 pywinauto 설치: python -m uv add pywinauto")
-    print("=" * 60)
-    
-    # -------------------------------------------------------------------------
-    # 🛠️ 멘토님 코드 시작점
-    # -------------------------------------------------------------------------
-    # 
-    # 아래 pass를 삭제하고 pywinauto 코드를 작성해 주세요!
-    # 
-    # from pywinauto import Application
-    # 
-    # try:
-    #     app = Application(backend='uia').connect(title_re=".*Visual Studio Code.*")
-    #     window = app.window(title_re=".*Visual Studio Code.*")
-    #     
-    #     if action == "GOTO_LINE":
-    #         line = params.get("line", 1)
-    #         window.type_keys("^g")
-    #         time.sleep(0.2)
-    #         window.type_keys(str(line) + "{ENTER}")
-    #         return True
-    #         
-    #     elif action == "TYPE_CODE":
-    #         text = params.get("text", "")
-    #         window.type_keys(text, with_spaces=True, pause=0.02)
-    #         return True
-    #     
-    # except Exception as e:
-    #     print(f"❌ pywinauto 오류: {e}")
-    #     return False
-    # 
-    # -------------------------------------------------------------------------
-    
-    return True  # ← 임시 반환값. 실제 구현 시 삭제
+    try:
+        # 레거시 dict 형식을 EditorCommand로 변환
+        command = EditorCommand.from_legacy(command_data)
+        
+        # 컨트롤러 초기화 및 실행
+        ctrl = EditorController()
+        result = ctrl.execute(command)
+        
+        print(f"✅ [Controller] 실행 완료: {result}")
+    except NotImplementedError:
+        print("⚠️ [Controller] 아직 구현되지 않은 명령입니다.")
+        print("   멘토가 controller/ 모듈에서 핸들러를 구현해야 합니다.")
+    except Exception as e:
+        print(f"❌ [Controller] 실행 실패: {e}")
 
 
 # ============================================================================
