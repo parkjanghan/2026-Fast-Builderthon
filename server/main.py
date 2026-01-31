@@ -1,6 +1,7 @@
 from pathlib import Path
 from dotenv import load_dotenv
 from aiohttp import web
+import os
 from core.socket_manager import WebSocketManager
 
 # server/.env 로드
