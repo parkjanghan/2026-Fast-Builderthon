@@ -4,31 +4,19 @@ from aiohttp import web
 import os
 from core.socket_manager import WebSocketManager
 
-# server/.env 로드
-load_dotenv(Path(__file__).parent / ".env")
+# server/ 디렉토리 = core/ 패키지의 부모 (symlink에 영향받지 않음)
+import core
 
-# 오디오 캐시 디렉토리 (voice_service.py와 동일 경로여야 함)
-# Replit에서 main.py 위치가 다를 수 있으므로 server/ 기준 절대경로 사용
-_SERVER_DIR = Path(__file__).parent
-# core/ 폴더가 있으면 여기가 server/ 디렉토리
-if (_SERVER_DIR / "core").exists():
-    AUDIO_DIR = _SERVER_DIR / ".audio_cache"
-else:
-    # main.py가 workspace 루트에 있는 경우 (Replit)
-    # voice_service가 저장하는 경로를 직접 찾기
-    for candidate in [
-        _SERVER_DIR / "2026-Fast-Builderthon" / "server" / ".audio_cache",
-        _SERVER_DIR / "server" / ".audio_cache",
-        _SERVER_DIR / ".audio_cache",
-    ]:
-        if candidate.parent.exists():
-            AUDIO_DIR = candidate
-            break
-    else:
-        AUDIO_DIR = _SERVER_DIR / ".audio_cache"
+SERVER_DIR = Path(core.__file__).resolve().parent.parent
+print(f"📁 [Main] server/ 디렉토리: {SERVER_DIR}")
 
+# .env 로드 (server/.env)
+load_dotenv(SERVER_DIR / ".env")
+
+# 오디오 캐시 디렉토리 — voice_service.py와 동일 경로
+AUDIO_DIR = SERVER_DIR / ".audio_cache"
 AUDIO_DIR.mkdir(exist_ok=True)
-print(f"📁 [Main] 오디오 서빙 경로: {AUDIO_DIR.resolve()}")
+print(f"📁 [Main] 오디오 서빙 경로: {AUDIO_DIR}")
 
 
 async def init_app():
@@ -43,7 +31,11 @@ async def init_app():
         filename = request.match_info["filename"]
         file_path = AUDIO_DIR / filename
         if not file_path.exists():
-            return web.Response(status=404, text="Audio not found")
+            print(f"❌ [Audio] 파일 없음: {file_path}")
+            # 디렉토리 내 파일 목록 출력 (디버깅용)
+            existing = list(AUDIO_DIR.glob("*.mp3"))
+            print(f"   존재하는 파일: {[f.name for f in existing[:5]]}")
+            return web.Response(status=404, text=f"Audio not found: {filename}")
         return web.FileResponse(file_path, headers={"Content-Type": "audio/mpeg"})
 
     # 라우팅 설정
