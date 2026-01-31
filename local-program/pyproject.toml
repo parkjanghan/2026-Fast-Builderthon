@@ -1,9 +1,9 @@
 # ============================================================================
-# 📦 pyproject.toml - 2026년 1월 기준 최신 버전
+# 📦 pyproject.toml - 2026년 1월 기준 최신 버전 (Merged)
 # ============================================================================
 #
 # Python 3.14.2 (2025년 12월 출시) 호환
-# playsound3 (Lightweight Audio) - Python 3.14 공식 지원
+# Part 3 로컬 에이전트 (건호) + 윈도우 제어 (멘토) 통합 의존성
 #
 # ============================================================================
 
@@ -12,27 +12,24 @@ name = "part3-local-agent"
 version = "0.1.0"
 description = "AI 해커톤 Part 3 - 로컬 에이전트 (Windows 제어)"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 
 dependencies = [
-    "python-socketio[client]>=5.10.0",
-    "requests>=2.31.0",
-    "pydantic>=2.0",
-    "pyyaml>=6.0",
-    "pywinauto>=0.6.8",
-    "pygetwindow>=0.0.9",
-    "keyboard>=0.13.5",
-    "pygame>=2.5.0",
+    # 📡 통신 & 오디오 (건호)
+    "websockets~=16.0",          # 2026-01-10 최신 (순수 WebSocket)
+    "requests~=2.32.5",          # 2025-08-18 최신
+    "playsound3~=3.3.1",         # 2026-01-22 최신 (경량 오디오)
+    
+    # 🎮 윈도우 제어 & 로직 (멘토)
+    "pywinauto>=0.6.9",          # Windows UI 자동화
+    "pygetwindow>=0.0.9",        # 창 정보 가져오기
+    "keyboard>=0.13.5",          # 키보드 입력 제어
+    "pydantic>=2.0",             # 데이터 모델링
+    "pyyaml>=6.0",               # 설정 파일 처리
 ]
 
 [project.scripts]
 syncsight-local = "main:main"
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-markers = [
-    "integration: 실제 VS Code가 필요한 통합 테스트 (deselect with '-m \"not integration\"')",
-]
 
 [tool.uv]
 dev-dependencies = [
@@ -46,20 +43,5 @@ target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
-select = [
-    "F",      # pyflakes
-    "E",      # pycodestyle errors
-    "W",      # pycodestyle warnings
-    "I",      # isort
-    "UP",     # pyupgrade
-    "B",      # flake8-bugbear
-    "SIM",    # flake8-simplify
-    "RUF",    # ruff-specific
-]
-ignore = [
-    "E501",   # line-too-long (한글 주석이 길어질 수 있음)
-    "B905",   # zip-without-strict (Python 3.10+)
-]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["B", "SIM"]  # 테스트 파일은 bugbear/simplify 완화
+select = ["F", "E", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501", "B905"]
