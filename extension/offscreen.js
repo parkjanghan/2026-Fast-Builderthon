@@ -1,4 +1,4 @@
-// Offscreen Document - Audio Capture using MediaRecorder
+// Offscreen Document - Audio Capture using MediaRecorder + ElevenLabs STT
 
 import { MSG, CONFIG } from './types.js';
 
@@ -9,7 +9,8 @@ class AudioCapturer {
     this.currentVideoTime = 0;
     this.chunkStartTime = 0;
     this.isPaused = false;
-    this.chunks = [];
+    this.isProcessingSTT = false;
+    this.sttQueue = []; // 큐로 청크를 순차 처리
 
     this.setupMessageListener();
   }
@@ -64,8 +65,6 @@ class AudioCapturer {
         mimeType: 'audio/webm;codecs=opus',
       });
 
-      this.chunks = [];
-
       this.mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           this.handleAudioData(event.data);
@@ -95,28 +94,117 @@ class AudioCapturer {
   }
 
   async handleAudioData(blob) {
-    // Convert blob to base64 for message passing
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64 = reader.result.split(',')[1];
-      const duration = CONFIG.AUDIO_CHUNK_DURATION;
+    const duration = CONFIG.AUDIO_CHUNK_DURATION;
+    const videoTimeStart = this.chunkStartTime;
+    const videoTimeEnd = videoTimeStart + duration;
 
-      this.sendMessage({
-        source: 'offscreen',
-        type: MSG.AUDIO_CHUNK,
-        videoTimeStart: this.chunkStartTime,
-        duration: duration,
-        data: base64,
-        mimeType: 'audio/webm;codecs=opus',
+    // Update chunk start time for next chunk
+    this.chunkStartTime = this.currentVideoTime;
+
+    // WebM 헤더 검증 (손상된 청크 필터링)
+    const arrayBuffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    const hasWebMHeader = bytes.length >= 4 && 
+                          bytes[0] === 0x1a && bytes[1] === 0x45 && 
+                          bytes[2] === 0xdf && bytes[3] === 0xa3;
+
+    if (!hasWebMHeader) {
+      console.log('[Offscreen] ⏭️  Skipping chunk without WebM header (length:', bytes.length, ')');
+      return;
+    }
+
+    // 큐에 추가하고 처리 시작
+    this.sttQueue.push({ blob, videoTimeStart, videoTimeEnd });
+    console.log('[Offscreen] Audio chunk added to queue:', {
+      duration,
+      videoTimeStart,
+      videoTimeEnd,
+      queueSize: this.sttQueue.length,
+      isProcessing: this.isProcessingSTT,
+      blobSize: blob.size,
+      hasWebMHeader: true
+    });
+
+    this.processQueue();
+  }
+
+  async processQueue() {
+    // 이미 처리 중이면 리턴 (큐는 유지됨)
+    if (this.isProcessingSTT) {
+      return;
+    }
+
+    // 큐가 비었으면 리턴
+    if (this.sttQueue.length === 0) {
+      return;
+    }
+
+    this.isProcessingSTT = true;
+
+    // 큐에서 하나 꺼내서 처리
+    const { blob, videoTimeStart, videoTimeEnd } = this.sttQueue.shift();
+
+    try {
+      console.log('[Offscreen] Processing STT for', videoTimeStart, '-', videoTimeEnd, '(remaining:', this.sttQueue.length, ')');
+      console.log('[Offscreen] API URL:', CONFIG.ELEVENLABS_API_URL);
+      console.log('[Offscreen] API Key:', CONFIG.ELEVENLABS_API_KEY ? '***' : 'NOT SET');
+      console.log('[Offscreen] Blob size:', blob.size, 'bytes');
+
+      // Create FormData for ElevenLabs API
+      const formData = new FormData();
+      formData.append('file', blob, 'audio.webm');
+      formData.append('model_id', 'scribe_v1');
+      formData.append('language_code', 'ko');
+
+      // Call ElevenLabs STT API
+      console.log('[Offscreen] Calling ElevenLabs API...');
+      const response = await fetch(CONFIG.ELEVENLABS_API_URL, {
+        method: 'POST',
+        headers: {
+          'xi-api-key': CONFIG.ELEVENLABS_API_KEY,
+        },
+        body: formData,
       });
 
-      console.log('[Offscreen] Audio chunk sent, start time:', this.chunkStartTime);
+      console.log('[Offscreen] API Response Status:', response.status, response.statusText);
 
-      // Update chunk start time for next chunk
-      this.chunkStartTime = this.currentVideoTime;
-    };
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[Offscreen] API Error Response:', errorText);
+        throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);
+      }
 
-    reader.readAsDataURL(blob);
+      const result = await response.json();
+      console.log('[Offscreen] API Response JSON:', result);
+      const text = result.text?.trim() || '';
+
+      if (text) {
+        console.log('[Offscreen] STT result:', text);
+
+        // Send transcript result to background
+        this.sendMessage({
+          source: 'offscreen',
+          type: MSG.TRANSCRIPT_RESULT,
+          videoTimeStart,
+          videoTimeEnd,
+          text,
+        });
+      } else {
+        console.log('[Offscreen] STT returned empty text');
+      }
+
+    } catch (error) {
+      console.error('[Offscreen] STT failed:', error);
+      this.sendMessage({
+        source: 'offscreen',
+        type: MSG.AUDIO_ERROR,
+        error: error.message,
+      });
+    } finally {
+      this.isProcessingSTT = false;
+      // 다음 항목 처리 - 재귀적으로 큐의 다음 항목 처리
+      setTimeout(() => this.processQueue(), 100);
+    }
   }
 
   stopCapture() {
@@ -130,7 +218,7 @@ class AudioCapturer {
     }
 
     this.mediaRecorder = null;
-    this.chunks = [];
+    this.sttQueue = []; // 큐 클리어
     console.log('[Offscreen] Audio capture stopped');
   }
 

@@ -20,6 +20,7 @@ export const MSG = {
   // Offscreen → Background
   AUDIO_CHUNK: 'AUDIO_CHUNK',
   AUDIO_ERROR: 'AUDIO_ERROR',
+  TRANSCRIPT_RESULT: 'TRANSCRIPT_RESULT',
 
   // Background → Content
   REQUEST_STATUS: 'REQUEST_STATUS',
@@ -34,7 +35,7 @@ export const MSG = {
 // =============================================
 //
 // Extension → Server:
-// 1. Frame message:
+// 1. Frame message (화면 캡처 이미지):
 //    {
 //      "type": "frame",
 //      "timestamp": 1234567890,        // Unix timestamp (ms)
@@ -43,28 +44,18 @@ export const MSG = {
 //      "capturedAt": 1234567890        // Capture timestamp (ms)
 //    }
 //
-// 2. Audio message:
+// 2. Transcript message (ElevenLabs STT 결과 텍스트):
 //    {
-//      "type": "audio",
+//      "type": "transcript",
 //      "timestamp": 1234567890,        // Unix timestamp (ms)
 //      "videoTime": 123.45,            // Current video time (seconds)
 //      "videoTimeStart": 120.0,        // Audio chunk start time (seconds)
-//      "duration": 5,                  // Chunk duration (seconds)
-//      "data": "base64-encoded-webm",  // Base64 WebM audio data
-//      "mimeType": "audio/webm;codecs=opus"
+//      "videoTimeEnd": 125.0,          // Audio chunk end time (seconds)
+//      "text": "transcribed text"      // STT result text
 //    }
 //
 // Server → Extension:
-// 1. Transcript message:
-//    {
-//      "type": "transcript",
-//      "startTime": 120.0,             // Transcript start time (seconds)
-//      "endTime": 125.0,               // Transcript end time (seconds)
-//      "text": "transcribed text",     // STT result
-//      "fullContext": "accumulated"    // Recent transcript history
-//    }
-//
-// 2. Command message (optional):
+// 1. Command message (optional):
 //    {
 //      "type": "command",
 //      "action": "pause" | "resume" | "seek",
@@ -85,4 +76,8 @@ export const CONFIG = {
 
   // Offscreen document reasons
   OFFSCREEN_REASON: 'USER_MEDIA',
+
+  // ElevenLabs STT API
+  ELEVENLABS_API_KEY: 'sk_b14cb79ba4fb5cf5fb3ff1c91d424cf4cfb2ed04064a8660',
+  ELEVENLABS_API_URL: 'https://api.elevenlabs.io/v1/speech-to-text',
 };

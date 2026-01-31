@@ -12,8 +12,8 @@ const videoStatus = document.getElementById('videoStatus');
 const captureStatus = document.getElementById('captureStatus');
 const currentTime = document.getElementById('currentTime');
 const progressFill = document.getElementById('progressFill');
-const audioCount = document.getElementById('audioCount');
 const frameCount = document.getElementById('frameCount');
+const transcriptCount = document.getElementById('transcriptCount');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const wsUrlInput = document.getElementById('wsUrl');
@@ -63,8 +63,8 @@ function updateUI(state) {
   }
 
   // Data counts
-  audioCount.textContent = state.audioChunks || 0;
   frameCount.textContent = state.frames || 0;
+  transcriptCount.textContent = state.transcripts || 0;
 
   // Button states
   startBtn.disabled = !state.hasVideo || state.isCapturing;

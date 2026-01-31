@@ -11,6 +11,10 @@
     "storage"
   ],
 
+  "host_permissions": [
+    "https://api.elevenlabs.io/*"
+  ],
+
   "background": {
     "service_worker": "background.js",
     "type": "module"

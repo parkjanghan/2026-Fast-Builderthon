@@ -12,7 +12,7 @@ Extension과 Server 간의 WebSocket 통신 프로토콜 정의입니다.
 
 ## Extension → Server (Client to Server)
 
-### 1. Frame Message (화면 캡처)
+### 1. Frame Message (화면 캡처 이미지)
 
 비디오 화면을 5초 간격으로 캡처하여 전송합니다.
 
@@ -36,31 +36,29 @@ Extension과 Server 간의 WebSocket 통신 프로토콜 정의입니다.
 
 ---
 
-### 2. Audio Message (오디오 청크)
+### 2. Transcript Message (STT 결과 텍스트)
 
-비디오 오디오를 5초 단위 청크로 전송합니다.
+비디오 오디오를 5초 단위로 캡처 후, Extension에서 ElevenLabs STT API로 변환한 텍스트를 전송합니다.
 
 ```json
 {
-  "type": "audio",
+  "type": "transcript",
   "timestamp": 1706745600000,
   "videoTime": 125.0,
   "videoTimeStart": 120.0,
-  "duration": 5,
-  "data": "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJC...",
-  "mimeType": "audio/webm;codecs=opus"
+  "videoTimeEnd": 125.0,
+  "text": "안녕하세요, 오늘 강의를 시작하겠습니다."
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | string | 항상 `"audio"` |
+| `type` | string | 항상 `"transcript"` |
 | `timestamp` | number | 전송 시점 Unix timestamp (ms) |
 | `videoTime` | number | 현재 비디오 재생 시간 (초) |
 | `videoTimeStart` | number | 이 오디오 청크의 시작 시간 (초) |
-| `duration` | number | 청크 길이 (초), 기본값 5 |
-| `data` | string | Base64 인코딩된 WebM 오디오 데이터 |
-| `mimeType` | string | MIME 타입: `"audio/webm;codecs=opus"` |
+| `videoTimeEnd` | number | 이 오디오 청크의 종료 시간 (초) |
+| `text` | string | ElevenLabs STT 변환 텍스트 |
 
 ---
 
@@ -80,31 +78,7 @@ Extension과 Server 간의 WebSocket 통신 프로토콜 정의입니다.
 
 ---
 
-### 2. Transcript Message (STT 결과)
-
-음성을 텍스트로 변환한 결과를 전송합니다.
-
-```json
-{
-  "type": "transcript",
-  "startTime": 120.0,
-  "endTime": 125.0,
-  "text": "안녕하세요, 오늘 강의를 시작하겠습니다.",
-  "fullContext": "이전 문장들... 안녕하세요, 오늘 강의를 시작하겠습니다."
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `type` | string | 항상 `"transcript"` |
-| `startTime` | number | 해당 구간 시작 시간 (초) |
-| `endTime` | number | 해당 구간 종료 시간 (초) |
-| `text` | string | STT 변환 텍스트 |
-| `fullContext` | string | 최근 문맥 (이전 transcript 포함) |
-
----
-
-### 3. Command Message (제어 명령) - Optional
+### 2. Command Message (제어 명령) - Optional
 
 서버에서 클라이언트에 명령을 보낼 때 사용합니다.
 
@@ -124,7 +98,7 @@ Extension과 Server 간의 WebSocket 통신 프로토콜 정의입니다.
 
 ---
 
-### 4. Error Message (에러)
+### 3. Error Message (에러)
 
 ```json
 {
@@ -163,17 +137,10 @@ wss.on('connection', (ws) => {
           // message.image 처리 (Base64 JPEG)
           break;
 
-        case 'audio':
-          console.log(`Audio chunk: ${message.videoTimeStart}s - ${message.videoTimeStart + message.duration}s`);
-          // message.data 처리 (Base64 WebM)
-          // STT 처리 후 transcript 전송
-          ws.send(JSON.stringify({
-            type: 'transcript',
-            startTime: message.videoTimeStart,
-            endTime: message.videoTimeStart + message.duration,
-            text: 'STT 결과 텍스트',
-            fullContext: '전체 문맥'
-          }));
+        case 'transcript':
+          console.log(`Transcript: ${message.videoTimeStart}s - ${message.videoTimeEnd}s`);
+          console.log(`Text: ${message.text}`);
+          // 이미 STT 처리된 텍스트를 받음 - 서버에서 추가 처리 가능
           break;
 
         default:
@@ -227,22 +194,13 @@ async def handle_client(websocket):
                 # Base64 이미지 디코딩
                 # image_data = base64.b64decode(message["image"].split(",")[1])
 
-            elif message["type"] == "audio":
+            elif message["type"] == "transcript":
                 start = message["videoTimeStart"]
-                duration = message["duration"]
-                print(f"Audio chunk: {start}s - {start + duration}s")
-
-                # Base64 오디오 디코딩
-                # audio_data = base64.b64decode(message["data"])
-
-                # STT 처리 후 결과 전송
-                await websocket.send(json.dumps({
-                    "type": "transcript",
-                    "startTime": start,
-                    "endTime": start + duration,
-                    "text": "STT 결과 텍스트",
-                    "fullContext": "전체 문맥"
-                }))
+                end = message["videoTimeEnd"]
+                text = message["text"]
+                print(f"Transcript: {start}s - {end}s")
+                print(f"Text: {text}")
+                # 이미 STT 처리된 텍스트를 받음 - 서버에서 추가 처리 가능
 
         except json.JSONDecodeError as e:
             await websocket.send(json.dumps({
@@ -273,15 +231,16 @@ asyncio.run(main())
        │                                    │
        │  <──── { type: "connected" } ────  │
        │                                    │
-       │  ──── { type: "frame", ... } ────> │
+       │  ──── { type: "frame", ... } ────> │  (이미지)
        │                                    │
-       │  ──── { type: "audio", ... } ────> │
+       │  ── { type: "transcript", ... } ─> │  (STT 텍스트)
        │                                    │
-       │  <── { type: "transcript", ... } ──│
+       │  ──── { type: "frame", ... } ────> │  (이미지)
        │                                    │
-       │  ──── { type: "audio", ... } ────> │
-       │                                    │
-       │  <── { type: "transcript", ... } ──│
+       │  ── { type: "transcript", ... } ─> │  (STT 텍스트)
        │                                    │
        ▼                                    ▼
 ```
+
+**Note**: STT(Speech-to-Text) 처리는 Extension에서 ElevenLabs API를 통해 수행됩니다.
+서버는 이미 변환된 텍스트만 수신합니다.
