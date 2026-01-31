@@ -114,49 +114,23 @@ def execute_mentor_logic(command_data: Dict[str, Any]):
             "line": 15
         }
     """
-    print("=" * 60)
-    print("🎯 [멘토님 전용] execute_mentor_logic() 호출됨!")
-    print("=" * 60)
-    print(f"📦 받은 데이터: {json.dumps(command_data, indent=2, ensure_ascii=False)}")
-    print("")
-    print("⚠️  여기에 pywinauto 로직을 구현해 주세요!")
-    print("    예: VS Code 창 찾기 → 특정 라인으로 이동 → 코드 입력")
-    print("=" * 60)
+    from controller import EditorController
+    from models.commands import EditorCommand
     
-    # -------------------------------------------------------------------------
-    # 🛠️ 멘토님 코드 시작점
-    # -------------------------------------------------------------------------
-    # 
-    # 아래에 pywinauto 코드를 작성해 주세요!
-    # 
-    # 참고 코드:
-    # 
-    # from pywinauto import Application
-    # from pywinauto.findwindows import ElementNotFoundError
-    # 
-    # try:
-    #     # VS Code 연결
-    #     app = Application(backend='uia').connect(title_re=".*Visual Studio Code.*")
-    #     main_window = app.window(title_re=".*Visual Studio Code.*")
-    #     
-    #     action = command_data.get("action")
-    #     
-    #     if action == "type":
-    #         content = command_data.get("content", "")
-    #         main_window.type_keys(content, with_spaces=True)
-    #         
-    #     elif action == "goto_line":
-    #         line_number = command_data.get("line", 1)
-    #         main_window.type_keys("^g")  # Ctrl+G (Go to Line)
-    #         time.sleep(0.3)
-    #         main_window.type_keys(str(line_number) + "{ENTER}")
-    #         
-    # except ElementNotFoundError:
-    #     print("❌ VS Code 창을 찾을 수 없습니다!")
-    # 
-    # -------------------------------------------------------------------------
-    
-    pass  # ← 이 줄을 삭제하고 실제 로직을 구현해 주세요
+    try:
+        # 레거시 dict 형식을 EditorCommand로 변환
+        command = EditorCommand.from_legacy(command_data)
+        
+        # 컨트롤러 초기화 및 실행
+        ctrl = EditorController()
+        result = ctrl.execute(command)
+        
+        print(f"✅ [Controller] 실행 완료: {result}")
+    except NotImplementedError:
+        print("⚠️ [Controller] 아직 구현되지 않은 명령입니다.")
+        print("   멘토가 controller/ 모듈에서 핸들러를 구현해야 합니다.")
+    except Exception as e:
+        print(f"❌ [Controller] 실행 실패: {e}")
 
 
 def get_local_status() -> Dict[str, Any]:
@@ -172,26 +146,21 @@ def get_local_status() -> Dict[str, Any]:
             - timestamp: 현재 시간
             - is_paused: 강의 일시정지 상태
     """
-    # -------------------------------------------------------------------------
-    # 🛠️ 멘토님: pygetwindow 설치 후 아래 주석 해제 가능
-    # -------------------------------------------------------------------------
-    # import pygetwindow as gw
-    # 
-    # try:
-    #     active_window = gw.getActiveWindow()
-    #     window_title = active_window.title if active_window else "Unknown"
-    # except Exception:
-    #     window_title = "Unknown"
-    # -------------------------------------------------------------------------
-    
-    window_title = "Unknown (pygetwindow 미설치)"  # 임시값
-    
-    return {
-        "active_window": window_title,
-        "timestamp": time.time(),
-        "is_paused": is_lecture_paused,
-        "status": "ready"
-    }
+    try:
+        from controller import EditorController
+        ctrl = EditorController()
+        status = ctrl.get_status()
+        return status.model_dump()
+    except Exception as e:
+        # Fallback: controller 사용 불가 시 기존 로직
+        print(f"⚠️ [Controller] 상태 조회 실패, fallback 사용: {e}")
+        window_title = "Unknown (controller 사용 불가)"
+        return {
+            "active_window": window_title,
+            "timestamp": time.time(),
+            "is_paused": is_lecture_paused,
+            "status": "ready"
+        }
 
 
 # ============================================================================
