@@ -56,14 +56,13 @@ class WebSocketManager:
         t = self._now_str()
 
         # 연결 즉시 응답 (Welcome ACK)
-        await ws.send_json({
-            "source": "server",
-            "type": "connection_ack",
-            "data": {
-                "message": "Central Hub Connected",
-                "at": t
+        await ws.send_json(
+            {
+                "source": "server",
+                "type": "connection_ack",
+                "data": {"message": "Central Hub Connected", "at": t},
             }
-        })
+        )
         print(f"[{t}] 🔌 New client connected")
 
         async for msg in ws:
@@ -85,9 +84,7 @@ class WebSocketManager:
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError as e:
-            await ws.send_json(
-                ErrorMessage(code="PARSE_ERROR", message=str(e)).model_dump()
-            )
+            await ws.send_json(ErrorMessage(code="PARSE_ERROR", message=str(e)).model_dump())
             return
 
         # envelope 검증
@@ -105,14 +102,12 @@ class WebSocketManager:
                     # 이미지 분석 태스크 비동기 실행
                     image_b64 = inner_data.get("image")
                     if image_b64:
-                        asyncio.create_task(
-                            self._process_ai_decision(image_b64))
+                        asyncio.create_task(self._process_ai_decision(image_b64))
 
             # 로컬 에이전트에서 상태 수신
             elif source == "local":
                 if msg_type == "local_status":
-                    self.last_local_status = inner_data.get(
-                        "active_window", "unknown")
+                    self.last_local_status = inner_data.get("active_window", "unknown")
 
         except Exception as e:
             print(f"[{self._now_str()}] ❌ Message Error: {str(e)}")
@@ -131,25 +126,27 @@ class WebSocketManager:
         if local_ws is not None and not local_ws.closed:
             # action/params 형식으로 전송 (로컬 호환)
             action_type = decision.get("type", "").upper()
+            params = decision.get("payload", {})
+            # target_file이 있으면 params에 포함 (로컬이 올바른 파일에서 작업하도록)
+            target_file = decision.get("target_file")
+            if target_file:
+                params["target_file"] = target_file
             command_payload = {
                 "source": "server",
                 "data": {
                     "action": action_type,
-                    "params": decision.get("payload", {}),
-                    "audio_url": decision.get("audio_url")
-                }
+                    "params": params,
+                    "audio_url": decision.get("audio_url"),
+                },
             }
             await local_ws.send_json(command_payload)
-            print(
-                f"[{t}] 📡 [DECISION] {action_type} sent to Local"
-            )
+            print(f"[{t}] 📡 [DECISION] {action_type} sent to Local")
 
         chrome_ws = self.sessions.get("chrome")
         if chrome_ws is not None and not chrome_ws.closed:
-            await chrome_ws.send_json({
-                "source": "server",
-                "data": {
-                    "type": "ai_status",
-                    "guidance": decision.get("guidance")
+            await chrome_ws.send_json(
+                {
+                    "source": "server",
+                    "data": {"type": "ai_status", "guidance": decision.get("guidance")},
                 }
-            })
+            )

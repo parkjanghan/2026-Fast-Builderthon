@@ -122,20 +122,25 @@ class EditorCommand(BaseModel):
     # 선택적 필드들 (레거시 호환성)
     id: str | None = Field(None, description="명령 ID (추적용)")
     audio_url: str | None = Field(None, description="재생할 오디오 URL")
+    target_file: str | None = Field(None, description="편집 대상 파일명 (VS Code 타이틀로 검증용)")
 
     @classmethod
     def from_legacy(cls, command_data: dict[str, Any]) -> "EditorCommand":
         """
-        🔄 레거시 형식(action/target/content)을 새 형식으로 변환
+        🔄 서버 명령을 EditorCommand로 변환 (신규 + 레거시 형식 모두 지원)
 
-        Part 2에서 기존 dict 형식으로 보낸 명령을 EditorCommand로 변환합니다.
+        서버 신규 형식 (params 딕셔너리):
+            {"action": "FOCUS_WINDOW", "params": {"window_title": "..."}}
+        레거시 형식 (플랫 필드):
+            {"action": "focus_window", "target": "...", "content": "..."}
 
         Args:
-            command_data: 레거시 형식 명령 데이터
-                - action: 수행할 동작 (type, hotkey, goto_line 등)
-                - target: 대상 요소 (editor, window_title 등)
-                - content: 입력할 내용 (타이핑의 경우)
-                - line: 라인 번호 (goto_line의 경우)
+            command_data: 서버 명령 데이터
+                - action: 수행할 동작 (FOCUS_WINDOW, TYPE_CODE, GOTO_LINE 등)
+                - params: 동작 파라미터 딕셔너리 (신규 형식)
+                - target: 대상 요소 (레거시)
+                - content / text: 입력 내용
+                - line: 라인 번호
                 - audio_url: 재생할 오디오 URL
                 - id: 명령 ID
 
@@ -153,15 +158,21 @@ class EditorCommand(BaseModel):
             assert cmd.type == "type_text"
             assert cmd.payload["content"] == "hello world"
         """
-        action = command_data.get("action", "").lower()
-        target = command_data.get("target", "")
-        content = command_data.get("content", "")
-        line = command_data.get("line")
-        audio_url = command_data.get("audio_url")
-        cmd_id = command_data.get("id")
+        # 🔀 params 딕셔너리가 있으면 최상위로 병합 (서버 신규 형식 지원)
+        # 서버 형식: {"action": "FOCUS_WINDOW", "params": {"window_title": "..."}}
+        # 레거시 형식: {"action": "focus_window", "target": "...", "content": "..."}
+        params = command_data.get("params", {})
+        merged = {**command_data, **params} if params else command_data
+
+        action = merged.get("action", "").lower()
+        target = merged.get("target", "")
+        content = merged.get("content", merged.get("text", ""))
+        line = merged.get("line", merged.get("line_number"))
+        audio_url = merged.get("audio_url")
+        cmd_id = merged.get("id")
 
         # 🔀 action을 type으로 매핑
-        if action == "type":
+        if action in ("type", "type_code", "type_text"):
             cmd_type = "type_text"
             payload = {"content": content}
 
@@ -177,33 +188,36 @@ class EditorCommand(BaseModel):
         elif action == "goto_line":
             cmd_type = "goto_line"
             line_num = line if isinstance(line, int) else int(line or 1)
-            column = command_data.get("column")
+            column = merged.get("column")
             payload: dict[str, Any] = {"line_number": line_num}
             if column is not None:
                 payload["column"] = int(column)
 
         elif action == "command_palette":
             cmd_type = "command_palette"
-            payload = {"command": content}
+            command_text = merged.get("command", "") or content
+            payload = {"command": command_text}
 
         elif action == "open_file":
             cmd_type = "open_file"
-            payload = {"file_path": content}
+            file_path = merged.get("file_path", "") or content
+            payload = {"file_path": file_path}
 
         elif action == "focus_window":
             cmd_type = "focus_window"
-            payload = {"window_title": target or content}
+            window_title = merged.get("window_title", "") or target or content
+            payload = {"window_title": window_title}
 
         elif action == "open_folder":
             cmd_type = "open_folder"
-            folder_path = command_data.get("folder_path", content)
-            new_window = command_data.get("new_window", False)
+            folder_path = merged.get("folder_path", content)
+            new_window = merged.get("new_window", False)
             payload = {"folder_path": folder_path, "new_window": new_window}
 
         elif action == "save_file":
             cmd_type = "save_file"
-            file_name = command_data.get("file_name", content or None)
-            folder_path = command_data.get("folder_path")
+            file_name = merged.get("file_name", content or None)
+            folder_path = merged.get("folder_path")
             payload = {"file_name": file_name, "folder_path": folder_path}
 
         else:
@@ -211,4 +225,13 @@ class EditorCommand(BaseModel):
             cmd_type = "type_text"
             payload = {"content": content}
 
-        return cls(type=cmd_type, payload=payload, audio_url=audio_url, id=cmd_id)
+        # 편집 대상 파일명 추출 (서버가 target_file을 보내는 경우)
+        target_file = merged.get("target_file")
+
+        return cls(
+            type=cmd_type,
+            payload=payload,
+            audio_url=audio_url,
+            id=cmd_id,
+            target_file=target_file,
+        )

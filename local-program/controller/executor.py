@@ -126,6 +126,11 @@ class EditorController:
         self.current_status = "BUSY"
 
         try:
+            # 📋 편집 명령이면 올바른 파일에서 작업하는지 사전 검증
+            editing_commands = {"hotkey", "type_text", "goto_line", "save_file", "command_palette"}
+            if command.type in editing_commands and command.target_file:
+                self._ensure_correct_file(command.target_file)
+
             # 명령 타입에 따라 핸들러 디스패치
             match command.type:
                 case "focus_window":
@@ -231,9 +236,12 @@ class EditorController:
 
             # 알려진 다이얼로그 키워드 목록
             dialog_keywords = [
-                "Save As", "다른 이름으로 저장",
-                "확인", "Confirm",
-                "열기", "Open",
+                "Save As",
+                "다른 이름으로 저장",
+                "확인",
+                "Confirm",
+                "열기",
+                "Open",
                 "파일 이름이 올바르지",
             ]
             if any(kw in active for kw in dialog_keywords):
@@ -245,6 +253,81 @@ class EditorController:
                 print("✅ 다이얼로그 정리 완료")
         except Exception:
             pass
+
+    # ========================================================================
+    # 🎯 편집 전 파일 컨텍스트 검증
+    # ========================================================================
+
+    def _ensure_correct_file(self, target_file: str) -> None:
+        """
+        📋 편집 명령 실행 전 올바른 파일이 열려있는지 검증
+
+        VS Code 창 제목 형식: "filename - project_folder - Visual Studio Code"
+        현재 활성 탭의 파일명이 target_file과 일치하는지 확인하고,
+        불일치하면 open_file로 해당 파일을 열어서 전환합니다.
+
+        Args:
+            target_file (str): 편집 대상 파일명 (예: "main.py", "app.js")
+
+        Example:
+            self._ensure_correct_file("main.py")
+            # VS Code 타이틀이 "app.py - project - VS Code"이면
+            # → Ctrl+P로 main.py를 열어서 전환
+        """
+        if not target_file:
+            return
+
+        try:
+            import os
+
+            # 현재 활성 창 제목에서 파일명 추출
+            active_title = self.window_manager.get_active_window_title()
+            if not active_title:
+                return
+
+            # VS Code가 아닌 경우 → VS Code 먼저 포커스
+            if "Visual Studio Code" not in active_title and "Code" not in active_title:
+                print(f"⚠️ 현재 활성 창이 VS Code가 아닙니다: '{active_title}'")
+                self.window_manager.ensure_window("Visual Studio Code", auto_launch=True)
+                time.sleep(0.5)
+                active_title = self.window_manager.get_active_window_title() or ""
+
+            # VS Code 타이틀에서 현재 파일명 추출
+            # 형식: "filename - project_folder - Visual Studio Code"
+            # 또는: "● filename - project_folder - Visual Studio Code" (수정됨)
+            current_file = active_title.split(" - ")[0].strip()
+            # "●" 등 수정 표시 제거
+            current_file = current_file.lstrip("● ").strip()
+
+            # 파일명만 비교 (경로 제거)
+            target_name = os.path.basename(target_file)
+
+            if current_file.lower() == target_name.lower():
+                print(f"✅ 올바른 파일에서 작업 중: {target_name}")
+                return
+
+            # 불일치 → Quick Open (Ctrl+P)으로 파일 전환
+            print(f"⚠️ 파일 불일치: 현재='{current_file}', 대상='{target_name}'")
+            print(f"🔄 Ctrl+P로 '{target_name}' 파일로 전환합니다...")
+
+            import keyboard as kb
+
+            # Ctrl+P (Quick Open)
+            kb.send("ctrl+p")
+            time.sleep(0.5)
+
+            # 파일명 입력
+            self.keyboard_controller.type_text(target_name)
+            time.sleep(0.3)
+
+            # Enter로 선택
+            kb.send("enter")
+            time.sleep(0.5)
+
+            print(f"✅ 파일 전환 완료: {target_name}")
+
+        except Exception as e:
+            print(f"⚠️ 파일 컨텍스트 검증 실패 (계속 진행): {e}")
 
     # ========================================================================
     # 🔧 명령 핸들러 메서드들 (멘토가 구현할 예정)
@@ -291,6 +374,21 @@ class EditorController:
             timeout=APP_LAUNCH_TIMEOUT,
             poll_interval=APP_LAUNCH_POLL_INTERVAL,
         )
+
+        # 🔄 폴백: 요청한 창을 못 찾으면 VS Code를 새로 열어서 포커스
+        if not success:
+            print(f"⚠️ '{window_title}' 창을 찾지 못했습니다. VS Code를 새로 실행합니다...")
+            fallback_name = "Visual Studio Code"
+            success = self.window_manager.ensure_window(
+                fallback_name,
+                project_hint=project_hint,
+                auto_launch=True,
+                timeout=APP_LAUNCH_TIMEOUT,
+                poll_interval=APP_LAUNCH_POLL_INTERVAL,
+            )
+            if success:
+                window_title = f"{window_title} → VS Code (폴백)"
+
         return {
             "success": success,
             "message": f"✅ 창 포커스 완료: {window_title}"

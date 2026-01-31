@@ -32,6 +32,7 @@ class AIDecision(BaseModel):
     payload: dict
     guidance: str = ""
     should_pause: bool = False
+    target_file: Optional[str] = None  # 편집 대상 파일명 (로컬이 올바른 파일에서 작업하도록)
 
 
 # ============================================================================
@@ -44,8 +45,9 @@ class AIService:
 
     def __init__(self):
         self.llm = ChatNVIDIA(
-            model="meta/llama-3.2-11b-vision-instruct",
+            model="mistralai/ministral-14b-instruct-2512",
             nvidia_api_key=os.getenv("NVIDIA_API_KEY"),
+            temperature=0.15,  # Ministral 3 권장 온도
         )
 
         # local-program/models/commands.py EditorCommand 스키마와 정확히 일치하는 프롬프트
@@ -85,7 +87,8 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
   "type": "명령어타입",
   "payload": { ... 위 스키마에 맞는 필드 ... },
   "guidance": "스크린리더가 읽어줄 친절한 한국어 설명",
-  "should_pause": true 또는 false
+  "should_pause": true 또는 false,
+  "target_file": "편집할 파일명 (예: main.py)"
 }
 
 [규칙]
@@ -93,6 +96,7 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
 - payload는 해당 타입의 스키마를 정확히 따라야 함
 - guidance는 시각장애인이 이해할 수 있도록 친절하게 작성
 - should_pause: 강의를 일시정지해야 하면 true, 아니면 false
+- target_file: 편집 명령(type_text, goto_line, hotkey, save_file)일 때 반드시 대상 파일명을 포함해야 함 (예: "main.py", "app.js"). 로컬 에이전트가 올바른 파일을 열고 편집하기 위해 필수임. 화면에서 강사가 작업 중인 파일명을 읽어서 넣어줘.
 - 화면에 변화가 없거나 명령이 불필요하면 type을 "type_text", payload를 {"content": ""}, should_pause를 false로
 """
 
@@ -133,9 +137,7 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
                 if attempt < self.MAX_RETRIES:
                     # 재시도: 검증 에러를 피드백으로 제공
                     error_msg = str(e)
-                    print(
-                        f"⚠️ AI 응답 검증 실패 (재시도 {attempt + 1}): {error_msg[:100]}"
-                    )
+                    print(f"⚠️ AI 응답 검증 실패 (재시도 {attempt + 1}): {error_msg[:100]}")
                     messages.append(
                         HumanMessage(
                             content=(
@@ -165,9 +167,7 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
 
             except Exception as e:
                 print(f"❌ AI 분석 실패: {e}")
-                return self._fallback_decision(
-                    "화면을 분석하는 중 오류가 발생했습니다."
-                )
+                return self._fallback_decision("화면을 분석하는 중 오류가 발생했습니다.")
 
         return self._fallback_decision("알 수 없는 오류")
 
@@ -187,9 +187,7 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
             recent = "\n".join(transcript_context[-5:])
             text_parts.append(f"최근 강의 자막:\n{recent}")
 
-        text_parts.append(
-            "화면을 분석하고 수강생이 따라해야 할 명령을 JSON으로 내려줘."
-        )
+        text_parts.append("화면을 분석하고 수강생이 따라해야 할 명령을 JSON으로 내려줘.")
 
         content = [
             {"type": "text", "text": "\n\n".join(text_parts)},
