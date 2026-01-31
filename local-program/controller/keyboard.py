@@ -98,28 +98,52 @@ class KeyboardController:
 
     def type_text(self, text: str) -> None:
         """
-        ⌨️ 텍스트 입력
+        ⌨️ 텍스트 입력 (클립보드 붙여넣기 방식)
 
-        keyboard.write()를 사용하여 텍스트를 입력합니다.
-        pywinauto의 type_keys()와 달리 특수문자 이스케이핑이 불필요합니다.
+        텍스트를 클립보드에 복사한 뒤 Ctrl+V로 붙여넣습니다.
+        keyboard.write()는 문자 하나씩 타이핑하기 때문에
+        VS Code 자동 들여쓰기가 줄바꿈마다 작동하여 코드가 망가집니다.
+        붙여넣기는 auto-indent를 트리거하지 않으므로 안전합니다.
 
         Args:
             text (str): 입력할 텍스트
                 예: "print('Hello, World!')"
 
         Note:
-            - 영문, 숫자, 특수문자 모두 지원
-            - 한글은 keyboard.write()로 직접 지원되지 않음
-            - delay 파라미터로 타이핑 속도 조절 가능
+            - 영문, 숫자, 특수문자, 한글 모두 지원
+            - 여러 줄 코드도 들여쓰기가 보존됨
+            - 붙여넣기 후 원래 클립보드 내용은 복원하지 않음
 
         Example:
             kb = KeyboardController()
 
-            # 코드 입력 (특수문자 포함)
-            kb.type_text("def hello():")
-            kb.type_text("    print('Hello')")
+            # 코드 입력 (여러 줄도 들여쓰기 정확)
+            kb.type_text("def hello():\\n    print('Hello')")
         """
-        keyboard.write(text, delay=TYPE_DELAY)
+        import ctypes
+
+        # Windows Clipboard API로 텍스트 복사
+        CF_UNICODETEXT = 13
+        kernel32 = ctypes.windll.kernel32
+        user32 = ctypes.windll.user32
+
+        user32.OpenClipboard(0)
+        user32.EmptyClipboard()
+
+        # 유니코드 문자열을 글로벌 메모리에 할당
+        data = text.encode("utf-16le") + b"\x00\x00"
+        h_mem = kernel32.GlobalAlloc(0x0042, len(data))  # GMEM_MOVEABLE | GMEM_ZEROINIT
+        ptr = kernel32.GlobalLock(h_mem)
+        ctypes.memmove(ptr, data, len(data))
+        kernel32.GlobalUnlock(h_mem)
+
+        user32.SetClipboardData(CF_UNICODETEXT, h_mem)
+        user32.CloseClipboard()
+
+        time.sleep(0.05)
+
+        # Ctrl+V로 붙여넣기
+        keyboard.send("ctrl+v")
         time.sleep(HOTKEY_DELAY)
 
     def send_command_palette(self, command: str) -> None:
