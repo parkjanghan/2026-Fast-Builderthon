@@ -1,0 +1,22 @@
+# VS Code Default Keyboard Shortcuts Keymap
+# This file defines the default keyboard shortcuts for Visual Studio Code
+# Used by EditorController to map generic commands to VS Code-specific key combinations
+
+editor: "Visual Studio Code"
+window_title_pattern: ".*Visual Studio Code.*"
+
+shortcuts:
+  goto_line: ["ctrl", "g"]
+  new_file: ["ctrl", "n"]
+  open_file: ["ctrl", "o"]
+  save: ["ctrl", "s"]
+  close_tab: ["ctrl", "w"]
+  command_palette: ["ctrl", "shift", "p"]
+  find: ["ctrl", "f"]
+  replace: ["ctrl", "h"]
+  undo: ["ctrl", "z"]
+  redo: ["ctrl", "shift", "z"]
+  select_all: ["ctrl", "a"]
+  copy: ["ctrl", "c"]
+  paste: ["ctrl", "v"]
+  cut: ["ctrl", "x"]

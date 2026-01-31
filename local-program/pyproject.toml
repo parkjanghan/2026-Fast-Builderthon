@@ -3,19 +3,20 @@ name = "part3-local-agent"
 version = "0.1.0"
 description = "AI 해커톤 Part 3 - 로컬 에이전트 (Windows 제어)"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 
 dependencies = [
     "python-socketio[client]>=5.10.0",
     "requests>=2.31.0",
     "pygame>=2.5.0",
-]
-
-[project.optional-dependencies]
-windows = [
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
     "pywinauto>=0.6.8",
     "pygetwindow>=0.0.9",
 ]
+
+[project.scripts]
+syncsight-local = "main:main"
 
 [tool.uv]
 dev-dependencies = []
