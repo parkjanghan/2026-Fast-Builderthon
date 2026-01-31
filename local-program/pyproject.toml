@@ -1,21 +1,31 @@
+# ============================================================================
+# 📦 pyproject.toml - 2026년 1월 기준 최신 버전
+# ============================================================================
+#
+# Python 3.14.2 (2025년 12월 출시) 호환
+# playsound3 (Lightweight Audio) - Python 3.14 공식 지원
+#
+# ============================================================================
+
 [project]
 name = "part3-local-agent"
 version = "0.1.0"
 description = "AI 해커톤 Part 3 - 로컬 에이전트 (Windows 제어)"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 
 dependencies = [
-    "websockets>=12.0",
-    "requests>=2.31.0",
-    "pygame>=2.5.0",
+    "websockets~=16.0",          # 2026-01-10 최신
+    "requests~=2.32.5",          # 2025-08-18 최신
+    "playsound3~=3.3.1",         # 2026-01-22 최신 (Python 3.14 지원, 경량화)
+    "pygetwindow~=0.0.9",        # 최신
 ]
 
 [project.optional-dependencies]
 windows = [
-    "pywinauto>=0.6.8",
-    "pygetwindow>=0.0.9",
+    "pywinauto~=0.6.9",          # 2025-01-06 최신
+    "pygetwindow~=0.0.9",
 ]
 
-[tool.uv]
-dev-dependencies = []
+[dependency-groups]
+dev = []
