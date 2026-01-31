@@ -97,8 +97,8 @@ class WebSocketManager:
             inner_data = raw_data.get("data", {})
             msg_type = inner_data.get("type", "unknown")
 
-        # 세션 등록
-        self.sessions[source] = ws
+            # 세션 등록
+            self.sessions[source] = ws
 
             # 크롬 확장프로그램에서 frame 수신
             if source == "chrome":
