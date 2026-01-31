@@ -116,8 +116,17 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
         for attempt in range(1 + self.MAX_RETRIES):
             try:
                 response = await self.llm.ainvoke(messages)
-                raw_json = self._extract_json(response.content)
+                raw_text = response.content
+                print(f"🤖 [AI 원문] {raw_text[:300]}")
+
+                raw_json = self._extract_json(raw_text)
                 decision = AIDecision.model_validate(raw_json)
+
+                print(
+                    f"✅ [AI 결정] type={decision.type} "
+                    f"payload={json.dumps(decision.payload, ensure_ascii=False)[:100]} "
+                    f"pause={decision.should_pause}"
+                )
                 return decision.model_dump()
 
             except ValidationError as e:
@@ -205,14 +214,14 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
     @staticmethod
     def _extract_json(text: str) -> dict:
         """
-        AI 응답에서 JSON을 추출합니다.
-        1차: 직접 파싱
-        2차: ```json ... ``` 코드블록 추출
-        3차: 첫 번째 { ... } 매칭
+        AI 응답에서 첫 번째 JSON 객체를 추출합니다.
+
+        AI가 여러 JSON을 연속 출력하는 경우({ ... } { ... })
+        첫 번째 완전한 객체만 추출합니다.
         """
         text = text.strip()
 
-        # 1차: 직접 파싱
+        # 1차: 전체가 단일 JSON이면 바로 파싱
         try:
             return json.loads(text)
         except json.JSONDecodeError:
@@ -226,15 +235,58 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
             except json.JSONDecodeError:
                 pass
 
-        # 3차: 첫 번째 { ... } 브레이스 매칭
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group(0))
-            except json.JSONDecodeError:
-                pass
+        # 3차: balanced brace 매칭 — 첫 번째 { ... } 객체만 추출
+        result = AIService._extract_first_json_object(text)
+        if result is not None:
+            return result
 
         raise ValueError(f"AI 응답에서 JSON을 추출할 수 없습니다: {text[:200]}")
+
+    @staticmethod
+    def _extract_first_json_object(text: str) -> dict | None:
+        """
+        문자열에서 brace depth를 추적하여 첫 번째 완전한 JSON 객체를 추출합니다.
+        '{ ... } { ... }' 형태에서 첫 번째만 가져옴.
+        """
+        start = text.find("{")
+        if start == -1:
+            return None
+
+        depth = 0
+        in_string = False
+        escape = False
+
+        for i in range(start, len(text)):
+            ch = text[i]
+
+            if escape:
+                escape = False
+                continue
+
+            if ch == "\\":
+                if in_string:
+                    escape = True
+                continue
+
+            if ch == '"' and not escape:
+                in_string = not in_string
+                continue
+
+            if in_string:
+                continue
+
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start : i + 1]
+                    try:
+                        return json.loads(candidate)
+                    except json.JSONDecodeError:
+                        return None
+
+        return None
 
     # ------------------------------------------------------------------
     # 테스트
