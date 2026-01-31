@@ -33,6 +33,7 @@ class AIDecision(BaseModel):
     guidance: str = ""
     should_pause: bool = False
     target_file: Optional[str] = None  # 편집 대상 파일명 (로컬이 올바른 파일에서 작업하도록)
+    expected_content: Optional[str] = None  # 화면에 보이는 현재 파일 내용 (로컬 파일 검증용)
 
 
 # ============================================================================
@@ -88,7 +89,8 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
   "payload": { ... 위 스키마에 맞는 필드 ... },
   "guidance": "스크린리더가 읽어줄 친절한 한국어 설명",
   "should_pause": true 또는 false,
-  "target_file": "편집할 파일명 (예: main.py)"
+  "target_file": "편집할 파일명 (예: main.py)",
+  "expected_content": "화면에 보이는 해당 파일의 현재 전체 코드 내용 (있는 그대로)"
 }
 
 [규칙]
@@ -97,6 +99,7 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
 - guidance는 시각장애인이 이해할 수 있도록 친절하게 작성
 - should_pause: 강의를 일시정지해야 하면 true, 아니면 false
 - target_file: 편집 명령(type_text, goto_line, hotkey, save_file)일 때 반드시 대상 파일명을 포함해야 함 (예: "main.py", "app.js"). 로컬 에이전트가 올바른 파일을 열고 편집하기 위해 필수임. 화면에서 강사가 작업 중인 파일명을 읽어서 넣어줘.
+- expected_content: 편집 명령일 때 화면에 보이는 해당 파일의 현재 전체 코드 내용을 있는 그대로 넣어줘. 로컬 에이전트가 같은 이름의 다른 파일에 잘못 편집하는 것을 방지하기 위한 검증용임. 화면에 보이는 코드를 최대한 정확하게 읽어서 넣어줘. 화면에 일부만 보이면 보이는 부분만 넣어도 됨.
 - 화면에 변화가 없거나 명령이 불필요하면 type을 "type_text", payload를 {"content": ""}, should_pause를 false로
 """
 

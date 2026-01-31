@@ -123,6 +123,9 @@ class EditorCommand(BaseModel):
     id: str | None = Field(None, description="명령 ID (추적용)")
     audio_url: str | None = Field(None, description="재생할 오디오 URL")
     target_file: str | None = Field(None, description="편집 대상 파일명 (VS Code 타이틀로 검증용)")
+    expected_content: str | None = Field(
+        None, description="화면에 보이는 파일 내용 (로컬 파일 검증용)"
+    )
 
     @classmethod
     def from_legacy(cls, command_data: dict[str, Any]) -> "EditorCommand":
@@ -227,6 +230,8 @@ class EditorCommand(BaseModel):
 
         # 편집 대상 파일명 추출 (서버가 target_file을 보내는 경우)
         target_file = merged.get("target_file")
+        # 화면에 보이는 파일 내용 (파일 검증용)
+        expected_content = merged.get("expected_content")
 
         return cls(
             type=cmd_type,
@@ -234,4 +239,5 @@ class EditorCommand(BaseModel):
             audio_url=audio_url,
             id=cmd_id,
             target_file=target_file,
+            expected_content=expected_content,
         )

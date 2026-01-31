@@ -129,7 +129,7 @@ class EditorController:
             # 📋 편집 명령이면 올바른 파일에서 작업하는지 사전 검증
             editing_commands = {"hotkey", "type_text", "goto_line", "save_file", "command_palette"}
             if command.type in editing_commands and command.target_file:
-                self._ensure_correct_file(command.target_file)
+                self._ensure_correct_file(command.target_file, command.expected_content)
 
             # 명령 타입에 따라 핸들러 디스패치
             match command.type:
@@ -258,14 +258,15 @@ class EditorController:
     # 🎯 편집 전 파일 컨텍스트 검증
     # ========================================================================
 
-    def _ensure_correct_file(self, target_file: str) -> None:
+    def _ensure_correct_file(self, target_file: str, expected_content: str | None = None) -> None:
         """
-        📋 편집 명령 실행 전 올바른 워크스페이스 + 파일이 열려있는지 검증
+        📋 편집 명령 실행 전 올바른 워크스페이스 + 파일이 열려있는지 + 내용 검증
 
         검증 순서:
           1. VS Code가 활성 창인지 확인 → 아니면 포커스/실행
           2. 워크스페이스가 올바른지 타이틀로 확인 → 아니면 폴더 열기
           3. 대상 파일이 열려있는지 확인 → 아니면 code CLI로 파일 열기
+          4. expected_content가 있으면 로컬 파일 내용과 비교 → 불일치 시 덮어쓰기
 
         VS Code 타이틀 형식:
           "filename - project_folder - Visual Studio Code"
@@ -274,9 +275,10 @@ class EditorController:
 
         Args:
             target_file (str): 편집 대상 파일명 (예: "main.py", "practice.py")
+            expected_content (str | None): 화면에 보이는 파일 내용 (검증용, None이면 스킵)
 
         Example:
-            self._ensure_correct_file("practice.py")
+            self._ensure_correct_file("practice.py", "print('hello')")
         """
         if not target_file:
             return
@@ -369,6 +371,10 @@ class EditorController:
 
             if current_file.lower() == target_name.lower():
                 print(f"✅ 올바른 파일에서 작업 중: {target_name}")
+                # 파일명은 같지만 내용이 다를 수 있으므로 검증
+                if expected_content and project_path:
+                    file_path = os.path.join(project_path, target_name)
+                    self._verify_file_content(file_path, expected_content)
                 return
 
             print(f"⚠️ 파일 불일치: 현재='{current_file}', 대상='{target_name}'")
@@ -407,12 +413,101 @@ class EditorController:
                     # 포커스 확실히 맞추기
                     self.window_manager.focus_window("Visual Studio Code")
                     time.sleep(0.3)
+                    # 새로 연 파일 내용 검증
+                    if expected_content and project_path:
+                        file_path = os.path.join(project_path, target_name)
+                        self._verify_file_content(file_path, expected_content)
                     return
 
             print(f"⚠️ 파일 열기 타임아웃: {target_name} (계속 진행)")
 
+            # ----------------------------------------------------------------
+            # 4단계: 파일 내용 검증 (expected_content가 있는 경우)
+            # ----------------------------------------------------------------
+            if expected_content and project_path:
+                file_path = os.path.join(project_path, target_name)
+                self._verify_file_content(file_path, expected_content)
+
         except Exception as e:
             print(f"⚠️ 파일 컨텍스트 검증 실패 (계속 진행): {e}")
+
+    # ========================================================================
+    # 🔍 파일 내용 검증
+    # ========================================================================
+
+    def _verify_file_content(self, file_path: str, expected_content: str) -> None:
+        """
+        🔍 로컬 파일 내용과 서버가 보낸 expected_content를 비교
+
+        화면에서 AI가 읽은 내용(부분일 수 있음)이 로컬 파일에 포함되어 있는지 확인.
+        불일치 시 로컬 파일을 expected_content로 덮어씁니다.
+
+        Args:
+            file_path (str): 검증할 파일의 절대 경로
+            expected_content (str): 서버가 보낸 화면 속 파일 내용
+
+        Example:
+            self._verify_file_content("C:/project/main.py", "print('hello')")
+        """
+        import os
+
+        if not expected_content or not expected_content.strip():
+            return
+
+        try:
+            # 파일이 존재하지 않으면 expected_content로 생성
+            if not os.path.exists(file_path):
+                print(f"📄 파일이 없어서 expected_content로 생성: {file_path}")
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(expected_content)
+                return
+
+            # 현재 파일 내용 읽기
+            with open(file_path, encoding="utf-8") as f:
+                local_content = f.read()
+
+            # 비교: expected_content가 로컬 파일에 포함되어 있는지 확인
+            # (AI는 화면에 보이는 부분만 보내므로 부분 일치도 OK)
+            expected_stripped = expected_content.strip()
+            local_stripped = local_content.strip()
+
+            if not local_stripped:
+                # 빈 파일이면 expected_content로 채우기
+                print(f"📝 빈 파일에 expected_content 작성: {file_path}")
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(expected_content)
+                return
+
+            if expected_stripped in local_stripped:
+                print(f"✅ 파일 내용 일치 확인: {os.path.basename(file_path)}")
+                return
+
+            # 줄 단위 비교 — expected의 줄들이 local에 몇 % 포함되는지
+            expected_lines = [ln.strip() for ln in expected_stripped.splitlines() if ln.strip()]
+            local_lines_set = {ln.strip() for ln in local_stripped.splitlines() if ln.strip()}
+
+            if not expected_lines:
+                return
+
+            match_count = sum(1 for ln in expected_lines if ln in local_lines_set)
+            match_ratio = match_count / len(expected_lines)
+
+            if match_ratio >= 0.5:
+                # 50% 이상 일치하면 같은 파일로 간주
+                print(f"✅ 파일 내용 부분 일치 ({match_ratio:.0%}): {os.path.basename(file_path)}")
+                return
+
+            # 불일치: 다른 내용의 파일 → expected_content로 덮어쓰기
+            print(f"⚠️ 파일 내용 불일치 ({match_ratio:.0%}): {os.path.basename(file_path)}")
+            print(f"   로컬 {len(local_stripped)}자 vs 서버 {len(expected_stripped)}자")
+            print(f"📝 서버의 expected_content로 파일 덮어쓰기: {file_path}")
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(expected_content)
+            print(f"✅ 파일 내용 동기화 완료: {os.path.basename(file_path)}")
+
+        except Exception as e:
+            print(f"⚠️ 파일 내용 검증 실패 (계속 진행): {e}")
 
     # ========================================================================
     # 🔧 명령 핸들러 메서드들 (멘토가 구현할 예정)
