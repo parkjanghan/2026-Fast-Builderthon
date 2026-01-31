@@ -120,21 +120,35 @@ class KeyboardController:
             # 코드 입력 (여러 줄도 들여쓰기 정확)
             kb.type_text("def hello():\\n    print('Hello')")
         """
+        import os
         import subprocess
+        import tempfile
 
-        # PowerShell Set-Clipboard으로 텍스트 복사 (유니코드 안전)
-        # stdin으로 전달하면 특수문자/따옴표 이스케이핑 불필요
-        process = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", "Set-Clipboard -Value $input"],
-            input=text,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=5,
-        )
+        # 임시 파일에 텍스트 저장 후 PowerShell로 클립보드 복사
+        # stdin 파이프는 줄바꿈을 배열로 분리하여 개행이 손실될 수 있음
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", encoding="utf-8", delete=False
+            ) as tmp:
+                tmp.write(text)
+                tmp_path = tmp.name
 
-        if process.returncode != 0:
-            raise RuntimeError(f"클립보드 복사 실패: {process.stderr}")
+            # Get-Content -Raw로 파일 전체를 단일 문자열로 읽어서 클립보드에 복사
+            ps_cmd = f'Set-Clipboard -Value (Get-Content -Raw -Encoding UTF8 "{tmp_path}")'
+            process = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_cmd],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+
+            if process.returncode != 0:
+                raise RuntimeError(f"클립보드 복사 실패: {process.stderr}")
+
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
         time.sleep(0.05)
 

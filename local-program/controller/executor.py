@@ -160,6 +160,10 @@ class EditorController:
                 case _:
                     raise ValueError(f"알 수 없는 명령 타입: {command.type}")
 
+            # 명령 실행 후 다이얼로그 정리 (Ctrl+F5 등이 팝업을 띄울 수 있음)
+            time.sleep(0.3)
+            self._dismiss_stale_dialogs()
+
             return result
 
         finally:
@@ -243,6 +247,13 @@ class EditorController:
                 "열기",
                 "Open",
                 "파일 이름이 올바르지",
+                "extension",
+                "Marketplace",
+                "Don't Show Again",
+                "Do you want",
+                "Would you like",
+                "Cannot find",
+                "Unable to",
             ]
             if any(kw in active for kw in dialog_keywords):
                 print(f"⚠️ 잔여 다이얼로그 감지: '{active}'")
