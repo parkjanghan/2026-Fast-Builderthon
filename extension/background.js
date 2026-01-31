@@ -81,10 +81,13 @@ function sendToWebSocket(type, data) {
 
   try {
     const message = JSON.stringify({
-      type,
-      timestamp: Date.now(),
-      videoTime: state.currentVideoTime,
-      ...data,
+      source: 'chrome',
+      data: {
+        type,
+        timestamp: Date.now(),
+        videoTime: state.currentVideoTime,
+        ...data,
+      },
     });
     ws.send(message);
     console.log('[WebSocket] Sent:', type);

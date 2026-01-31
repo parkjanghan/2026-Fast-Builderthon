@@ -36,9 +36,17 @@ server.on('connection', (ws, req) => {
   fs.writeFileSync(session.transcriptPath, `=== Transcript Session ${session.id} ===\n\n`);
   console.log(`📝 Transcript file: ${session.transcriptPath}`);
 
-  ws.on('message', (data) => {
+  ws.on('message', (rawData) => {
     try {
-      const message = JSON.parse(data);
+      const wrapper = JSON.parse(rawData);
+
+      // 새 프로토콜: { source: "chrome", data: {...} }
+      if (wrapper.source !== 'chrome' || !wrapper.data) {
+        console.log('📨 Unknown message format:', wrapper);
+        return;
+      }
+
+      const message = wrapper.data;
 
       if (message.type === 'frame') {
         session.frameCount++;

@@ -12,55 +12,75 @@ Extension과 Server 간의 WebSocket 통신 프로토콜 정의입니다.
 
 ## Extension → Server (Client to Server)
 
+모든 메시지는 아래 래퍼 형식으로 전송됩니다:
+
+```json
+{
+  "source": "chrome",
+  "data": { ... }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | string | 항상 `"chrome"` (메시지 출처 식별) |
+| `data` | object | 실제 메시지 데이터 |
+
+---
+
 ### 1. Frame Message (화면 캡처)
 
 비디오 화면을 5초 간격으로 캡처하여 전송합니다.
 
 ```json
 {
-  "type": "frame",
-  "timestamp": 1706745600000,
-  "videoTime": 123.45,
-  "image": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
-  "capturedAt": 1706745600000
+  "source": "chrome",
+  "data": {
+    "type": "frame",
+    "timestamp": 1706745600000,
+    "videoTime": 123.45,
+    "image": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
+    "capturedAt": 1706745600000
+  }
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | string | 항상 `"frame"` |
-| `timestamp` | number | 전송 시점 Unix timestamp (ms) |
-| `videoTime` | number | 현재 비디오 재생 시간 (초) |
-| `image` | string | Base64 인코딩된 JPEG 이미지 (data URL 형식) |
-| `capturedAt` | number | 캡처 시점 Unix timestamp (ms) |
+| `data.type` | string | 항상 `"frame"` |
+| `data.timestamp` | number | 전송 시점 Unix timestamp (ms) |
+| `data.videoTime` | number | 현재 비디오 재생 시간 (초) |
+| `data.image` | string | Base64 인코딩된 JPEG 이미지 (data URL 형식) |
+| `data.capturedAt` | number | 캡처 시점 Unix timestamp (ms) |
 
 ---
 
-### 2. Audio Message (오디오 청크)
+### 2. Transcript Message (자막 텍스트)
 
-비디오 오디오를 5초 단위 청크로 전송합니다.
+STT 처리된 자막 텍스트를 전송합니다.
 
 ```json
 {
-  "type": "audio",
-  "timestamp": 1706745600000,
-  "videoTime": 125.0,
-  "videoTimeStart": 120.0,
-  "duration": 5,
-  "data": "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJC...",
-  "mimeType": "audio/webm;codecs=opus"
+  "source": "chrome",
+  "data": {
+    "type": "transcript",
+    "timestamp": 1706745600000,
+    "videoTime": 125.0,
+    "text": "안녕하세요, 오늘 강의를 시작하겠습니다.",
+    "videoTimeStart": 120.0,
+    "videoTimeEnd": 125.0
+  }
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | string | 항상 `"audio"` |
-| `timestamp` | number | 전송 시점 Unix timestamp (ms) |
-| `videoTime` | number | 현재 비디오 재생 시간 (초) |
-| `videoTimeStart` | number | 이 오디오 청크의 시작 시간 (초) |
-| `duration` | number | 청크 길이 (초), 기본값 5 |
-| `data` | string | Base64 인코딩된 WebM 오디오 데이터 |
-| `mimeType` | string | MIME 타입: `"audio/webm;codecs=opus"` |
+| `data.type` | string | 항상 `"transcript"` |
+| `data.timestamp` | number | 전송 시점 Unix timestamp (ms) |
+| `data.videoTime` | number | 현재 비디오 재생 시간 (초) |
+| `data.text` | string | STT 변환된 텍스트 |
+| `data.videoTimeStart` | number | 자막 시작 시간 (초) |
+| `data.videoTimeEnd` | number | 자막 종료 시간 (초) |
 
 ---
 
@@ -153,9 +173,17 @@ wss.on('connection', (ws) => {
     timestamp: Date.now()
   }));
 
-  ws.on('message', (data) => {
+  ws.on('message', (rawData) => {
     try {
-      const message = JSON.parse(data);
+      const wrapper = JSON.parse(rawData);
+
+      // 새 프로토콜: { source: "chrome", data: {...} }
+      if (wrapper.source !== 'chrome' || !wrapper.data) {
+        console.log('Unknown message format:', wrapper);
+        return;
+      }
+
+      const message = wrapper.data;
 
       switch (message.type) {
         case 'frame':
@@ -163,17 +191,9 @@ wss.on('connection', (ws) => {
           // message.image 처리 (Base64 JPEG)
           break;
 
-        case 'audio':
-          console.log(`Audio chunk: ${message.videoTimeStart}s - ${message.videoTimeStart + message.duration}s`);
-          // message.data 처리 (Base64 WebM)
-          // STT 처리 후 transcript 전송
-          ws.send(JSON.stringify({
-            type: 'transcript',
-            startTime: message.videoTimeStart,
-            endTime: message.videoTimeStart + message.duration,
-            text: 'STT 결과 텍스트',
-            fullContext: '전체 문맥'
-          }));
+        case 'transcript':
+          console.log(`Transcript: ${message.videoTimeStart}s - ${message.videoTimeEnd}s`);
+          console.log(`Text: ${message.text}`);
           break;
 
         default:
@@ -218,31 +238,28 @@ async def handle_client(websocket):
         "timestamp": int(datetime.now().timestamp() * 1000)
     }))
 
-    async for data in websocket:
+    async for raw_data in websocket:
         try:
-            message = json.loads(data)
+            wrapper = json.loads(raw_data)
+
+            # 새 프로토콜: { source: "chrome", data: {...} }
+            if wrapper.get("source") != "chrome" or "data" not in wrapper:
+                print(f"Unknown message format: {wrapper}")
+                continue
+
+            message = wrapper["data"]
 
             if message["type"] == "frame":
                 print(f"Frame received at video time: {message['videoTime']}s")
                 # Base64 이미지 디코딩
                 # image_data = base64.b64decode(message["image"].split(",")[1])
 
-            elif message["type"] == "audio":
+            elif message["type"] == "transcript":
                 start = message["videoTimeStart"]
-                duration = message["duration"]
-                print(f"Audio chunk: {start}s - {start + duration}s")
-
-                # Base64 오디오 디코딩
-                # audio_data = base64.b64decode(message["data"])
-
-                # STT 처리 후 결과 전송
-                await websocket.send(json.dumps({
-                    "type": "transcript",
-                    "startTime": start,
-                    "endTime": start + duration,
-                    "text": "STT 결과 텍스트",
-                    "fullContext": "전체 문맥"
-                }))
+                end = message["videoTimeEnd"]
+                text = message["text"]
+                print(f"Transcript: {start}s - {end}s")
+                print(f"Text: {text}")
 
         except json.JSONDecodeError as e:
             await websocket.send(json.dumps({
@@ -264,24 +281,20 @@ asyncio.run(main())
 ## Data Flow
 
 ```
-┌─────────────┐                      ┌─────────────┐
-│  Extension  │                      │   Server    │
-│  (Client)   │                      │  (Replit)   │
-└──────┬──────┘                      └──────┬──────┘
-       │                                    │
-       │  ──── WebSocket Connect ────>      │
-       │                                    │
-       │  <──── { type: "connected" } ────  │
-       │                                    │
-       │  ──── { type: "frame", ... } ────> │
-       │                                    │
-       │  ──── { type: "audio", ... } ────> │
-       │                                    │
-       │  <── { type: "transcript", ... } ──│
-       │                                    │
-       │  ──── { type: "audio", ... } ────> │
-       │                                    │
-       │  <── { type: "transcript", ... } ──│
-       │                                    │
-       ▼                                    ▼
+┌─────────────┐                                        ┌─────────────┐
+│  Extension  │                                        │   Server    │
+│  (Client)   │                                        │  (Replit)   │
+└──────┬──────┘                                        └──────┬──────┘
+       │                                                      │
+       │  ──────────── WebSocket Connect ──────────────>      │
+       │                                                      │
+       │  <────────── { type: "connected" } ───────────────   │
+       │                                                      │
+       │  ── { source: "chrome", data: { type: "frame" }} ──> │
+       │                                                      │
+       │  ── { source: "chrome", data: { type: "transcript" }} > │
+       │                                                      │
+       │  <──────── { type: "command", ... } ─────────────    │
+       │                                                      │
+       ▼                                                      ▼
 ```
