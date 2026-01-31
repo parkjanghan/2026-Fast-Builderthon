@@ -55,9 +55,16 @@ class WebSocketManager:
         await ws.prepare(request)
         t = self._now_str()
 
-        # 연결 즉시 protocol.md 형식의 connected 메시지 전송
-        await ws.send_json(ConnectedMessage(timestamp=self._now_ms()).model_dump())
-        print(f"[{t}] 🔌 New client connected")
+        # 연결 즉시 응답 (Welcome ACK)
+        await ws.send_json({
+            "source": "server",
+            "type": "connection_ack",
+            "data": {
+                "message": "Central Hub Connected",
+                "at": curr_t
+            }
+        })
+        print(f"[{curr_t}] 🔌 New client connected")
 
         async for msg in ws:
             if msg.type == web.WSMsgType.TEXT:
@@ -85,92 +92,32 @@ class WebSocketManager:
 
         # envelope 검증
         try:
-            envelope = MessageEnvelope.model_validate(parsed)
-        except Exception:
-            # envelope 형식이 아닌 경우 (fallback)
-            print(f"[{self._now_str()}] ⚠️ Non-envelope message: {list(parsed.keys())}")
-            return
-
-        source = envelope.source
-        data = envelope.data
+            raw_data = json.loads(data)
+            source = raw_data.get("source", "unknown")
+            inner_data = raw_data.get("data", {})
+            msg_type = inner_data.get("type", "unknown")
 
         # 세션 등록
         self.sessions[source] = ws
 
-        if source == "chrome":
-            await self._handle_chrome_message(ws, data)
-        elif source == "local":
-            await self._handle_local_message(data)
+            # 크롬 확장프로그램에서 frame 수신
+            if source == "chrome":
+                if msg_type == "frame":
+                    # 이미지 분석 태스크 비동기 실행
+                    image_b64 = inner_data.get("image")
+                    if image_b64:
+                        asyncio.create_task(
+                            self._process_ai_decision(image_b64))
 
-    # ------------------------------------------------------------------
-    # Extension(chrome) 메시지 처리
-    # ------------------------------------------------------------------
-    async def _handle_chrome_message(self, ws: web.WebSocketResponse, data: dict):
-        msg_type = data.get("type", "")
-        t = self._now_str()
+            # 로컬 에이전트에서 상태 수신
+            elif source == "local":
+                if msg_type == "local_status":
+                    self.last_local_status = inner_data.get(
+                        "active_window", "unknown")
 
-        if msg_type == "frame":
-            try:
-                frame = FrameData.model_validate(data)
-            except Exception as e:
-                await ws.send_json(
-                    ErrorMessage(code="INVALID_FORMAT", message=str(e)).model_dump()
-                )
-                return
+        except Exception as e:
+            print(f"[{self.get_time()}] ❌ Message Error: {str(e)}")
 
-            print(f"[{t}] 📸 Frame received (videoTime={frame.videoTime}s)")
-
-            # AI 분석 파이프라인 비동기 실행
-            asyncio.create_task(self._process_ai_decision(frame.image))
-
-        elif msg_type == "transcript":
-            try:
-                transcript = TranscriptData.model_validate(data)
-            except Exception as e:
-                await ws.send_json(
-                    ErrorMessage(code="INVALID_FORMAT", message=str(e)).model_dump()
-                )
-                return
-
-            print(
-                f"[{t}] 📝 Transcript received "
-                f"({transcript.videoTimeStart}s – {transcript.videoTimeEnd}s): "
-                f"{transcript.text[:50]}..."
-            )
-
-            # 문맥 누적 (최근 10개)
-            self.transcript_context.append(transcript.text)
-            if len(self.transcript_context) > 10:
-                self.transcript_context.pop(0)
-
-        else:
-            print(f"[{t}] ⚠️ Unknown chrome message type: {msg_type}")
-
-    # ------------------------------------------------------------------
-    # Local Agent 메시지 처리
-    # ------------------------------------------------------------------
-    async def _handle_local_message(self, data: dict):
-        msg_type = data.get("type", "")
-        t = self._now_str()
-
-        if msg_type == "local_status":
-            self.last_local_status = data.get("active_window", "unknown")
-
-        elif msg_type == "hello":
-            print(f"[{t}] 👋 Local Agent connected: {data.get('message', '')}")
-
-        elif msg_type == "action_complete":
-            action = data.get("action", "?")
-            success = data.get("success", False)
-            icon = "✅" if success else "❌"
-            print(f"[{t}] {icon} Local completed: {action}")
-
-        else:
-            print(f"[{t}] 📩 Local message: {msg_type}")
-
-    # ------------------------------------------------------------------
-    # AI Decision 파이프라인 (NVIDIA NIM → Local Agent 명령)
-    # ------------------------------------------------------------------
     async def _process_ai_decision(self, image_b64: str):
         """
         NVIDIA NIM 분석 후 Local Agent에 명령 전송 + Extension에 상태 공유
@@ -183,37 +130,27 @@ class WebSocketManager:
         # 1. Local Agent에 editor_command 전송
         local_ws = self.sessions.get("local")
         if local_ws is not None and not local_ws.closed:
+            # action/params 형식으로 전송 (로컬 호환)
+            action_type = decision.get("type", "").upper()
             command_payload = {
-                "source": "replit",
-                "type": "editor_command",
+                "source": "server",
                 "data": {
-                    "type": decision.get("type"),
-                    "payload": decision.get("payload"),
-                    "guidance": decision.get("guidance"),
-                    "should_pause": decision.get("should_pause", False),
-                },
+                    "action": action_type,
+                    "params": decision.get("payload", {}),
+                    "audio_url": decision.get("audio_url")
+                }
             }
             await local_ws.send_json(command_payload)
-            print(f"[{t}] 📡 [DECISION] {decision.get('type')} → Local")
+            print(
+                f"[{curr_t}] 📡 [DECISION] {action_type} sent to Local"
+            )
 
-        # 2. Extension에 pause 명령 (should_pause인 경우)
         chrome_ws = self.sessions.get("chrome")
         if chrome_ws is not None and not chrome_ws.closed:
-            if decision.get("should_pause"):
-                await chrome_ws.send_json(
-                    {
-                        "type": "command",
-                        "action": "pause",
-                        "value": None,
-                    }
-                )
-
-            # AI 상태 공유 (guidance)
-            guidance = decision.get("guidance")
-            if guidance:
-                await chrome_ws.send_json(
-                    {
-                        "type": "ai_status",
-                        "guidance": guidance,
-                    }
-                )
+            await chrome_ws.send_json({
+                "source": "server",
+                "data": {
+                    "type": "ai_status",
+                    "guidance": decision.get("guidance")
+                }
+            })
