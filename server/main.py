@@ -7,9 +7,28 @@ from core.socket_manager import WebSocketManager
 # server/.env 로드
 load_dotenv(Path(__file__).parent / ".env")
 
-# 오디오 캐시 디렉토리
-AUDIO_DIR = Path(__file__).parent / ".audio_cache"
+# 오디오 캐시 디렉토리 (voice_service.py와 동일 경로여야 함)
+# Replit에서 main.py 위치가 다를 수 있으므로 server/ 기준 절대경로 사용
+_SERVER_DIR = Path(__file__).parent
+# core/ 폴더가 있으면 여기가 server/ 디렉토리
+if (_SERVER_DIR / "core").exists():
+    AUDIO_DIR = _SERVER_DIR / ".audio_cache"
+else:
+    # main.py가 workspace 루트에 있는 경우 (Replit)
+    # voice_service가 저장하는 경로를 직접 찾기
+    for candidate in [
+        _SERVER_DIR / "2026-Fast-Builderthon" / "server" / ".audio_cache",
+        _SERVER_DIR / "server" / ".audio_cache",
+        _SERVER_DIR / ".audio_cache",
+    ]:
+        if candidate.parent.exists():
+            AUDIO_DIR = candidate
+            break
+    else:
+        AUDIO_DIR = _SERVER_DIR / ".audio_cache"
+
 AUDIO_DIR.mkdir(exist_ok=True)
+print(f"📁 [Main] 오디오 서빙 경로: {AUDIO_DIR.resolve()}")
 
 
 async def init_app():

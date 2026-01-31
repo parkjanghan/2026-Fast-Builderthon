@@ -28,9 +28,11 @@ class VoiceService:
         self.api_key = os.getenv("ELEVENLABS_API_KEY")
         self.base_url = "https://api.elevenlabs.io/v1"
 
-        # 오디오 캐시 디렉토리 (main.py와 동일 경로)
+        # 오디오 캐시 디렉토리 (main.py의 AUDIO_DIR과 반드시 동일해야 함)
+        # voice_service.py → services/ → server/ = server/.audio_cache
         self.audio_dir = Path(__file__).parent.parent / ".audio_cache"
         self.audio_dir.mkdir(exist_ok=True)
+        print(f"📁 [VoiceService] 오디오 캐시: {self.audio_dir.resolve()}")
 
         # 서버 공개 URL (Replit 환경 자동 감지)
         self.server_url = os.getenv("SERVER_URL", "").rstrip("/")
