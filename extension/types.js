@@ -20,6 +20,8 @@ export const MSG = {
   // Offscreen → Background
   AUDIO_CHUNK: 'AUDIO_CHUNK',
   AUDIO_ERROR: 'AUDIO_ERROR',
+  TRANSCRIPT: 'TRANSCRIPT',
+  TRANSCRIPT_ERROR: 'TRANSCRIPT_ERROR',
 
   // Background → Content
   REQUEST_STATUS: 'REQUEST_STATUS',

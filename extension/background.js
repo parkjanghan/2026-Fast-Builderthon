@@ -11,12 +11,13 @@ const state = {
   playbackRate: 1,
   duration: 0,
   tabId: null,
-  audioChunks: [],
+  transcripts: [],
   frames: [],
   frameIntervalId: null,
   // WebSocket
   wsConnected: false,
-  wsUrl: 'wss://5920da4b-c27b-4df6-9297-f7d4ec4f329f-00-st4gdos7kox3.riker.replit.dev/ws',
+  // wsUrl: 'wss://5920da4b-c27b-4df6-9297-f7d4ec4f329f-00-st4gdos7kox3.riker.replit.dev/ws',
+  wsUrl: 'ws://localhost:8080',
 };
 
 // Expose state to console for debugging
@@ -102,12 +103,11 @@ function sendFrame(frame) {
   });
 }
 
-function sendAudioChunk(chunk) {
-  sendToWebSocket('audio', {
-    videoTimeStart: chunk.videoTimeStart,
-    duration: chunk.duration,
-    data: chunk.data,
-    mimeType: 'audio/webm;codecs=opus',
+function sendTranscript(transcript) {
+  sendToWebSocket('transcript', {
+    text: transcript.text,
+    videoTimeStart: transcript.videoTimeStart,
+    videoTimeEnd: transcript.videoTimeEnd,
   });
 }
 
@@ -268,12 +268,12 @@ async function stopCapture() {
 
     const result = {
       success: true,
-      audioChunks: state.audioChunks.length,
+      transcripts: state.transcripts.length,
       frames: state.frames.length,
     };
 
     // Clear collected data to free memory
-    state.audioChunks = [];
+    state.transcripts = [];
     state.frames = [];
 
     state.isCapturing = false;
@@ -336,19 +336,19 @@ function handleVideoStatus(message, sender) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Messages from offscreen document
   if (message.source === 'offscreen') {
-    if (message.type === MSG.AUDIO_CHUNK) {
-      const chunk = {
+    if (message.type === MSG.TRANSCRIPT) {
+      const transcript = {
+        text: message.text,
         videoTimeStart: message.videoTimeStart,
-        duration: message.duration,
-        data: message.data,
+        videoTimeEnd: message.videoTimeEnd,
       };
-      state.audioChunks.push(chunk);
-      console.log('[Background] Audio chunk received:', message.videoTimeStart);
+      state.transcripts.push(transcript);
+      console.log('[Background] Transcript received:', message.text);
 
-      // Send audio chunk via WebSocket
-      sendAudioChunk(chunk);
-    } else if (message.type === MSG.AUDIO_ERROR) {
-      console.error('[Background] Audio error:', message.error);
+      // Send transcript via WebSocket (text only, not audio)
+      sendTranscript(transcript);
+    } else if (message.type === MSG.AUDIO_ERROR || message.type === MSG.TRANSCRIPT_ERROR) {
+      console.error('[Background] Error:', message.error);
     }
     return;
   }
@@ -394,7 +394,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       currentVideoTime: state.currentVideoTime,
       paused: state.paused,
       duration: state.duration,
-      audioChunks: state.audioChunks.length,
+      transcripts: state.transcripts.length,
       frames: state.frames.length,
       wsConnected: state.wsConnected,
       wsUrl: state.wsUrl,

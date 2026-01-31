@@ -12,7 +12,7 @@ const videoStatus = document.getElementById('videoStatus');
 const captureStatus = document.getElementById('captureStatus');
 const currentTime = document.getElementById('currentTime');
 const progressFill = document.getElementById('progressFill');
-const audioCount = document.getElementById('audioCount');
+const transcriptCount = document.getElementById('transcriptCount');
 const frameCount = document.getElementById('frameCount');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
@@ -63,7 +63,7 @@ function updateUI(state) {
   }
 
   // Data counts
-  audioCount.textContent = state.audioChunks || 0;
+  transcriptCount.textContent = state.transcripts || 0;
   frameCount.textContent = state.frames || 0;
 
   // Button states
@@ -134,7 +134,7 @@ async function stopCapture() {
     const response = await chrome.runtime.sendMessage({ type: MSG.STOP_CAPTURE });
 
     if (response.success) {
-      console.log(`Capture stopped. Collected ${response.audioChunks} audio chunks and ${response.frames} frames.`);
+      console.log(`Capture stopped. Collected ${response.transcripts} transcripts and ${response.frames} frames.`);
     }
 
     stopBtn.textContent = 'Stop';
