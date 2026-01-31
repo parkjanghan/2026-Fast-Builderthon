@@ -30,6 +30,48 @@ export const MSG = {
   DISCONNECT_WS: 'DISCONNECT_WS',
 };
 
+// WebSocket Data Protocol (Extension ↔ Server)
+// =============================================
+//
+// Extension → Server:
+// 1. Frame message:
+//    {
+//      "type": "frame",
+//      "timestamp": 1234567890,        // Unix timestamp (ms)
+//      "videoTime": 123.45,            // Current video time (seconds)
+//      "image": "data:image/jpeg;base64,...",  // Base64 JPEG image
+//      "capturedAt": 1234567890        // Capture timestamp (ms)
+//    }
+//
+// 2. Audio message:
+//    {
+//      "type": "audio",
+//      "timestamp": 1234567890,        // Unix timestamp (ms)
+//      "videoTime": 123.45,            // Current video time (seconds)
+//      "videoTimeStart": 120.0,        // Audio chunk start time (seconds)
+//      "duration": 5,                  // Chunk duration (seconds)
+//      "data": "base64-encoded-webm",  // Base64 WebM audio data
+//      "mimeType": "audio/webm;codecs=opus"
+//    }
+//
+// Server → Extension:
+// 1. Transcript message:
+//    {
+//      "type": "transcript",
+//      "startTime": 120.0,             // Transcript start time (seconds)
+//      "endTime": 125.0,               // Transcript end time (seconds)
+//      "text": "transcribed text",     // STT result
+//      "fullContext": "accumulated"    // Recent transcript history
+//    }
+//
+// 2. Command message (optional):
+//    {
+//      "type": "command",
+//      "action": "pause" | "resume" | "seek",
+//      "value": 123.45                 // For seek: target time
+//    }
+//
+
 // Configuration
 export const CONFIG = {
   // Polling interval for video status (ms)

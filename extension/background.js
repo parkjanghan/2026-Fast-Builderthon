@@ -16,7 +16,7 @@ const state = {
   frameIntervalId: null,
   // WebSocket
   wsConnected: false,
-  wsUrl: 'ws://localhost:8080',
+  wsUrl: 'wss://5920da4b-c27b-4df6-9297-f7d4ec4f329f-00-st4gdos7kox3.riker.replit.dev/ws',
 };
 
 // Expose state to console for debugging
