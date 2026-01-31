@@ -120,25 +120,21 @@ class KeyboardController:
             # 코드 입력 (여러 줄도 들여쓰기 정확)
             kb.type_text("def hello():\\n    print('Hello')")
         """
-        import ctypes
+        import subprocess
 
-        # Windows Clipboard API로 텍스트 복사
-        CF_UNICODETEXT = 13
-        kernel32 = ctypes.windll.kernel32
-        user32 = ctypes.windll.user32
+        # PowerShell Set-Clipboard으로 텍스트 복사 (유니코드 안전)
+        # stdin으로 전달하면 특수문자/따옴표 이스케이핑 불필요
+        process = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", "Set-Clipboard -Value $input"],
+            input=text,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+        )
 
-        user32.OpenClipboard(0)
-        user32.EmptyClipboard()
-
-        # 유니코드 문자열을 글로벌 메모리에 할당
-        data = text.encode("utf-16le") + b"\x00\x00"
-        h_mem = kernel32.GlobalAlloc(0x0042, len(data))  # GMEM_MOVEABLE | GMEM_ZEROINIT
-        ptr = kernel32.GlobalLock(h_mem)
-        ctypes.memmove(ptr, data, len(data))
-        kernel32.GlobalUnlock(h_mem)
-
-        user32.SetClipboardData(CF_UNICODETEXT, h_mem)
-        user32.CloseClipboard()
+        if process.returncode != 0:
+            raise RuntimeError(f"클립보드 복사 실패: {process.stderr}")
 
         time.sleep(0.05)
 
