@@ -45,10 +45,20 @@ class AIService:
     MAX_RETRIES = 1  # 검증 실패 시 재시도 횟수
 
     def __init__(self):
+        # ----------------------------------------------------------------
+        # 🤖 모델 선택 (OCR 벤치마크 기준 순위)
+        # ----------------------------------------------------------------
+        # 1순위: Llama 4 Maverick — OCR 82.3%, DocVQA 94.4%, 1M 컨텍스트
+        model_id = "meta/llama-4-maverick-17b-128e-instruct"
+        # 2순위: Nemotron Nano VL — OCRBench v2 1위(92.3%), 128K 컨텍스트
+        # model_id = "nvidia/nemotron-nano-12b-v2-vl"
+        # 3순위: Llama 4 Scout — OCR 74.3%, 10M 컨텍스트, 더 빠름
+        # model_id = "meta/llama-4-scout-17b-16e-instruct"
+        # ----------------------------------------------------------------
         self.llm = ChatNVIDIA(
-            model="mistralai/ministral-14b-instruct-2512",
+            model=model_id,
             nvidia_api_key=os.getenv("NVIDIA_API_KEY"),
-            temperature=0.15,  # Ministral 3 권장 온도
+            temperature=0.15,
         )
 
         # local-program/models/commands.py EditorCommand 스키마와 정확히 일치하는 프롬프트
