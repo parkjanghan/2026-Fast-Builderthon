@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field, ValidationError
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from services.voice_service import voice_service
+
 
 # ============================================================================
 # 📦 AI 응답 검증용 Pydantic 모델 (local-program EditorCommand와 1:1 대응)
@@ -144,7 +146,14 @@ JSON 외의 텍스트(설명, 마크다운 등)는 절대 포함하지 마.
                     f"payload={json.dumps(decision.payload, ensure_ascii=False)[:100]} "
                     f"pause={decision.should_pause}"
                 )
-                return decision.model_dump()
+                
+                # 음성 생성 (guidance가 있으면)
+                result = decision.model_dump()
+                if decision.guidance:
+                    audio_url = await voice_service.generate_speech(decision.guidance)
+                    result["audio_url"] = audio_url
+                
+                return result
 
             except ValidationError as e:
                 if attempt < self.MAX_RETRIES:
