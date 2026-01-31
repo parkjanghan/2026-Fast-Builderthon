@@ -6,6 +6,7 @@ from core.socket_manager import WebSocketManager
 
 # server/.env 로드
 load_dotenv(Path(__file__).parent / ".env")
+print(Path(__file__).parent / ".env")
 
 print(os.getenv("NVIDIA_API_KEY"))
 
