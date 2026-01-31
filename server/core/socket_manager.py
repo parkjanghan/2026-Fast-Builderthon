@@ -131,6 +131,9 @@ class WebSocketManager:
             target_file = decision.get("target_file")
             if target_file:
                 params["target_file"] = target_file
+            expected_content = decision.get("expected_content")
+            if expected_content:
+                params["expected_content"] = expected_content
             command_payload = {
                 "source": "server",
                 "data": {
