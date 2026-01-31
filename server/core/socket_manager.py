@@ -28,7 +28,7 @@ class WebSocketManager:
 
         # 연결 즉시 응답 (Welcome ACK)
         await ws.send_json({
-            "source": "replit",
+            "source": "server",
             "type": "connection_ack",
             "data": {
                 "message": "Central Hub Connected",
@@ -51,26 +51,29 @@ class WebSocketManager:
 
     async def _handle_message(self, ws: web.WebSocketResponse, data: str):
         try:
-            envelope = MessageEnvelope.model_validate_json(data)
-            source = envelope.source
-            msg_type = envelope.type
+            raw_data = json.loads(data)
+            source = raw_data.get("source", "unknown")
+            inner_data = raw_data.get("data", {})
+            msg_type = inner_data.get("type", "unknown")
 
             # 세션 등록
             if source in self.sessions:
                 self.sessions[source] = ws
 
-            # 로컬 클라이언트 데이터 처리
-            if source == "local":
+            # 크롬 확장프로그램에서 frame 수신
+            if source == "chrome":
                 if msg_type == "frame":
                     # 이미지 분석 태스크 비동기 실행
-                    image_b64 = envelope.data.get("image")
+                    image_b64 = inner_data.get("image")
                     if image_b64:
                         asyncio.create_task(
                             self._process_ai_decision(image_b64))
 
-                elif msg_type == "status":
-                    self.last_local_status = envelope.data.get(
-                        "status", "unknown")
+            # 로컬 에이전트에서 상태 수신
+            elif source == "local":
+                if msg_type == "local_status":
+                    self.last_local_status = inner_data.get(
+                        "active_window", "unknown")
 
         except Exception as e:
             print(f"[{self.get_time()}] ❌ Message Error: {str(e)}")
@@ -88,29 +91,27 @@ class WebSocketManager:
         # 2. 로컬 세션에 명령어 전송 (Type Check로 Never 에러 방지)
         local_ws = self.sessions.get("local")
         if local_ws is not None and not local_ws.closed:
+            # action/params 형식으로 전송 (로컬 호환)
+            action_type = decision.get("type", "").upper()
             command_payload = {
-                "source": "replit",
-                "type": "editor_command",
+                "source": "server",
                 "data": {
-                    "type": decision.get("type"),
-                    "payload": decision.get("payload"),
-                    "guidance": decision.get("guidance"),
-                    "should_pause": decision.get("should_pause", False)
+                    "action": action_type,
+                    "params": decision.get("payload", {}),
+                    "audio_url": decision.get("audio_url")
                 }
             }
-            # await를 통해 비동기 전송 보장
             await local_ws.send_json(command_payload)
             print(
-                f"[{curr_t}] 📡 [DECISION] {decision.get('type')} sent to Local"
+                f"[{curr_t}] 📡 [DECISION] {action_type} sent to Local"
             )
 
-        # 3. 크롬 세션에 상태 공유 (UI 업데이트)
         chrome_ws = self.sessions.get("chrome")
         if chrome_ws is not None and not chrome_ws.closed:
             await chrome_ws.send_json({
-                "source": "replit",
-                "type": "ai_status",
+                "source": "server",
                 "data": {
+                    "type": "ai_status",
                     "guidance": decision.get("guidance")
                 }
             })
