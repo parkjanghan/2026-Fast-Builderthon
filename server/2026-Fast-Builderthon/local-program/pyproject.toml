@@ -1,0 +1,21 @@
+[project]
+name = "part3-local-agent"
+version = "0.1.0"
+description = "AI 해커톤 Part 3 - 로컬 에이전트 (Windows 제어)"
+readme = "README.md"
+requires-python = ">=3.10"
+
+dependencies = [
+    "websockets>=12.0",
+    "requests>=2.31.0",
+    "pygame>=2.5.0",
+]
+
+[project.optional-dependencies]
+windows = [
+    "pywinauto>=0.6.8",
+    "pygetwindow>=0.0.9",
+]
+
+[tool.uv]
+dev-dependencies = []
