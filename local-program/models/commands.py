@@ -13,6 +13,8 @@
 #   - command_palette: VS Code 명령 팔레트 실행
 #   - open_file: 파일 열기
 #   - goto_line: 특정 라인으로 이동
+#   - open_folder: 폴더를 워크스페이스로 열기
+#   - save_file: 파일 저장 (이름 지정 가능)
 #
 # ============================================================================
 
@@ -59,6 +61,23 @@ class GotoLinePayload(BaseModel):
     """라인 이동 명령 페이로드"""
 
     line_number: int = Field(..., description="이동할 라인 번호", ge=1)
+    column: int | None = Field(None, description="이동할 컬럼 번호 (선택)", ge=1)
+
+
+class OpenFolderPayload(BaseModel):
+    """폴더 열기 명령 페이로드"""
+
+    folder_path: str = Field(..., description="열 폴더 경로")
+    new_window: bool = Field(False, description="새 창에서 열기 여부")
+
+
+class SaveFilePayload(BaseModel):
+    """파일 저장 명령 페이로드"""
+
+    file_name: str | None = Field(None, description="저장할 파일명 (None이면 현재 파일 저장)")
+    folder_path: str | None = Field(
+        None, description="저장 폴더 경로 (file_name과 조합하여 절대 경로 생성)"
+    )
 
 
 # ============================================================================
@@ -88,7 +107,14 @@ class EditorCommand(BaseModel):
     """
 
     type: Literal[
-        "focus_window", "hotkey", "type_text", "command_palette", "open_file", "goto_line"
+        "focus_window",
+        "hotkey",
+        "type_text",
+        "command_palette",
+        "open_file",
+        "goto_line",
+        "open_folder",
+        "save_file",
     ] = Field(..., description="명령 타입")
 
     payload: dict[str, Any] = Field(..., description="명령별 페이로드 데이터")
@@ -151,7 +177,10 @@ class EditorCommand(BaseModel):
         elif action == "goto_line":
             cmd_type = "goto_line"
             line_num = line if isinstance(line, int) else int(line or 1)
-            payload = {"line_number": line_num}
+            column = command_data.get("column")
+            payload: dict[str, Any] = {"line_number": line_num}
+            if column is not None:
+                payload["column"] = int(column)
 
         elif action == "command_palette":
             cmd_type = "command_palette"
@@ -164,6 +193,18 @@ class EditorCommand(BaseModel):
         elif action == "focus_window":
             cmd_type = "focus_window"
             payload = {"window_title": target or content}
+
+        elif action == "open_folder":
+            cmd_type = "open_folder"
+            folder_path = command_data.get("folder_path", content)
+            new_window = command_data.get("new_window", False)
+            payload = {"folder_path": folder_path, "new_window": new_window}
+
+        elif action == "save_file":
+            cmd_type = "save_file"
+            file_name = command_data.get("file_name", content or None)
+            folder_path = command_data.get("folder_path")
+            payload = {"file_name": file_name, "folder_path": folder_path}
 
         else:
             # 기본값: type_text로 처리

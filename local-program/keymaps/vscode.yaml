@@ -20,3 +20,5 @@ shortcuts:
   copy: ["ctrl", "c"]
   paste: ["ctrl", "v"]
   cut: ["ctrl", "x"]
+  save_as: ["ctrl", "shift", "s"]
+  open_folder: ["ctrl", "k", "ctrl", "o"]

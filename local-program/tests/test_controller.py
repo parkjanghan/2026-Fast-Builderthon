@@ -60,6 +60,34 @@ class TestDispatchRouting:
         mock_controller.execute(cmd)
         mock_controller._handle_goto_line.assert_called_once_with({"line_number": 42})
 
+    def test_dispatch_goto_line_with_column(self, mock_controller):
+        mock_controller._handle_goto_line = MagicMock(return_value={"success": True})
+        cmd = EditorCommand(type="goto_line", payload={"line_number": 3, "column": 23})
+        mock_controller.execute(cmd)
+        mock_controller._handle_goto_line.assert_called_once_with(
+            {"line_number": 3, "column": 23}
+        )
+
+    def test_dispatch_open_folder(self, mock_controller):
+        mock_controller._handle_open_folder = MagicMock(return_value={"success": True})
+        cmd = EditorCommand(type="open_folder", payload={"folder_path": "C:/workspace"})
+        mock_controller.execute(cmd)
+        mock_controller._handle_open_folder.assert_called_once_with(
+            {"folder_path": "C:/workspace"}
+        )
+
+    def test_dispatch_save_file(self, mock_controller):
+        mock_controller._handle_save_file = MagicMock(return_value={"success": True})
+        cmd = EditorCommand(type="save_file", payload={"file_name": "app.py"})
+        mock_controller.execute(cmd)
+        mock_controller._handle_save_file.assert_called_once_with({"file_name": "app.py"})
+
+    def test_dispatch_save_file_no_name(self, mock_controller):
+        mock_controller._handle_save_file = MagicMock(return_value={"success": True})
+        cmd = EditorCommand(type="save_file", payload={"file_name": None})
+        mock_controller.execute(cmd)
+        mock_controller._handle_save_file.assert_called_once_with({"file_name": None})
+
 
 # -------------------------------------------------------------------------
 # 🔄 상태 전환 테스트

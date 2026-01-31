@@ -146,6 +146,12 @@ class EditorController:
                 case "goto_line":
                     result = self._handle_goto_line(command.payload)
 
+                case "open_folder":
+                    result = self._handle_open_folder(command.payload)
+
+                case "save_file":
+                    result = self._handle_save_file(command.payload)
+
                 case _:
                     raise ValueError(f"알 수 없는 명령 타입: {command.type}")
 
@@ -199,6 +205,46 @@ class EditorController:
             current_keymap=self.keymap.get("editor", "vscode"),
             timestamp=time.time(),
         )
+
+    # ========================================================================
+    # 🧹 다이얼로그 정리
+    # ========================================================================
+
+    def _dismiss_stale_dialogs(self) -> None:
+        """
+        🧹 잔여 다이얼로그/모달 정리 (모든 명령 실행 전 호출)
+
+        이전 명령에서 Save As, 확인 다이얼로그 등이 닫히지 않고 남아있으면
+        이후 키보드 입력이 다이얼로그에 빠져 전체 시퀀스가 망가집니다.
+        활성 창 제목을 확인하여 다이얼로그가 감지되면 Esc로 닫습니다.
+
+        Example:
+            # execute() 시작 시 자동 호출됨
+            self._dismiss_stale_dialogs()
+        """
+        import keyboard as kb
+
+        try:
+            active = self.window_manager.get_active_window_title()
+            if not active:
+                return
+
+            # 알려진 다이얼로그 키워드 목록
+            dialog_keywords = [
+                "Save As", "다른 이름으로 저장",
+                "확인", "Confirm",
+                "열기", "Open",
+                "파일 이름이 올바르지",
+            ]
+            if any(kw in active for kw in dialog_keywords):
+                print(f"⚠️ 잔여 다이얼로그 감지: '{active}'")
+                for _ in range(5):
+                    kb.send("escape")
+                    time.sleep(0.2)
+                time.sleep(0.3)
+                print("✅ 다이얼로그 정리 완료")
+        except Exception:
+            pass
 
     # ========================================================================
     # 🔧 명령 핸들러 메서드들 (멘토가 구현할 예정)
@@ -343,7 +389,9 @@ class EditorController:
         """
         📂 파일 열기 핸들러
 
-        Ctrl+O → 딜레이 → 파일 경로 입력 → Enter로 파일을 엽니다.
+        VS Code CLI (`code <filepath>`) 또는 exe로 파일을 직접 엽니다.
+        네이티브 파일 다이얼로그를 사용하지 않아 안정적입니다.
+        열기 후 해당 창에 포커스합니다.
 
         Args:
             payload: {"file_path": str}
@@ -354,20 +402,31 @@ class EditorController:
         Example:
             result = controller._handle_open_file({"file_path": "C:/project/main.py"})
         """
-        import keyboard as kb
+        import os
+        import subprocess
 
         file_path = payload.get("file_path", "")
         try:
-            # Ctrl+O로 파일 열기 다이얼로그
-            self.keyboard_controller.send_hotkey(["ctrl", "o"])
-            time.sleep(0.5)
+            # VS Code exe 경로 가져오기
+            exe_path = ""
+            try:
+                from config import VSCODE_EXE_PATH
 
-            # 파일 경로 입력
-            self.keyboard_controller.type_text(file_path)
-            time.sleep(0.2)
+                exe_path = VSCODE_EXE_PATH
+            except (ImportError, AttributeError):
+                pass
 
-            # Enter로 열기
-            kb.send("enter")
+            # VS Code로 파일 열기 (--reuse-window로 기존 창에서 열기)
+            if exe_path and os.path.exists(exe_path):
+                subprocess.Popen([exe_path, "--reuse-window", file_path])
+            else:
+                subprocess.Popen(f'code --reuse-window "{file_path}"', shell=True)
+
+            time.sleep(1.0)
+
+            # 열린 파일의 VS Code 창에 포커스
+            file_name = os.path.basename(file_path)
+            self.window_manager.focus_window("Visual Studio Code", project_hint=file_name)
             time.sleep(0.3)
 
             return {
@@ -384,31 +443,39 @@ class EditorController:
 
     def _handle_goto_line(self, payload: dict[str, Any]) -> dict[str, Any]:
         """
-        🔢 라인 이동 핸들러
+        🔢 라인(+컬럼) 이동 핸들러
 
         키맵에서 goto_line 단축키를 로드하여 실행합니다.
-        Ctrl+G → 딜레이 → 라인 번호 입력 → Enter
+        VS Code의 Ctrl+G는 "줄:열" 형식을 지원합니다.
+        - column 없음: Ctrl+G → "42" → Enter (라인만 이동)
+        - column 있음: Ctrl+G → "42:23" → Enter (라인+컬럼 이동)
 
         Args:
-            payload: {"line_number": int}
+            payload: {"line_number": int, "column": int (선택)}
 
         Returns:
             실행 결과 딕셔너리
 
         Example:
+            # 라인만 이동
             result = controller._handle_goto_line({"line_number": 42})
+
+            # 라인 + 컬럼 이동
+            result = controller._handle_goto_line({"line_number": 3, "column": 23})
         """
         import keyboard as kb
 
         line_number = payload.get("line_number", 1)
+        column = payload.get("column")
         try:
             # 키맵에서 goto_line 단축키 가져오기
             goto_keys = self.keymap.get("shortcuts", {}).get("goto_line", ["ctrl", "g"])
             self.keyboard_controller.send_hotkey(goto_keys)
             time.sleep(0.3)
 
-            # 라인 번호 입력
-            self.keyboard_controller.type_text(str(line_number))
+            # "줄:열" 또는 "줄" 형식으로 입력
+            goto_text = f"{line_number}:{column}" if column is not None else str(line_number)
+            self.keyboard_controller.type_text(goto_text)
             time.sleep(0.1)
 
             # Enter로 이동
@@ -417,12 +484,211 @@ class EditorController:
 
             return {
                 "success": True,
-                "message": f"✅ 라인 이동 완료: {line_number}",
+                "message": f"✅ 라인 이동 완료: {goto_text}",
                 "timestamp": time.time(),
             }
         except Exception as e:
             return {
                 "success": False,
                 "message": f"❌ 라인 이동 실패: {e}",
+                "timestamp": time.time(),
+            }
+
+    def _handle_open_folder(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        📁 폴더 열기 핸들러 (워크스페이스)
+
+        폴더가 없으면 생성하고, VS Code에서 워크스페이스로 엽니다.
+        `code <folder_path>` CLI 또는 exe 직접 실행으로 동작합니다.
+
+        Args:
+            payload: {"folder_path": str, "new_window": bool (선택, 기본 False)}
+
+        Returns:
+            실행 결과 딕셔너리
+
+        Example:
+            # 폴더를 워크스페이스로 열기
+            result = controller._handle_open_folder({
+                "folder_path": "C:/Users/student/Desktop/PythonWorkspace"
+            })
+
+            # 새 창에서 열기
+            result = controller._handle_open_folder({
+                "folder_path": "C:/project",
+                "new_window": True
+            })
+        """
+        import os
+        import subprocess
+
+        folder_path = payload.get("folder_path", "")
+        new_window = payload.get("new_window", False)
+        try:
+            # 폴더가 없으면 생성
+            if not os.path.exists(folder_path):
+                os.makedirs(folder_path, exist_ok=True)
+                print(f"📁 폴더 생성: {folder_path}")
+
+            # VS Code exe 경로 가져오기
+            exe_path = ""
+            try:
+                from config import VSCODE_EXE_PATH
+
+                exe_path = VSCODE_EXE_PATH
+            except (ImportError, AttributeError):
+                pass
+
+            # exe 경로로 실행
+            if exe_path and os.path.exists(exe_path):
+                cmd = [exe_path]
+                if new_window:
+                    cmd.append("--new-window")
+                cmd.append(folder_path)
+                subprocess.Popen(cmd)
+            else:
+                # code CLI로 실행
+                cmd_str = "code"
+                if new_window:
+                    cmd_str += " --new-window"
+                cmd_str += f' "{folder_path}"'
+                subprocess.Popen(cmd_str, shell=True)
+
+            # ensure_window로 창이 뜰 때까지 polling + 포커스
+            folder_name = os.path.basename(folder_path)
+            try:
+                from config import APP_LAUNCH_POLL_INTERVAL, APP_LAUNCH_TIMEOUT
+            except (ImportError, AttributeError):
+                APP_LAUNCH_TIMEOUT = 15
+                APP_LAUNCH_POLL_INTERVAL = 0.5
+
+            # 이미 실행 명령을 보냈으니 launch 없이 polling만
+            deadline = time.time() + APP_LAUNCH_TIMEOUT
+            focused = False
+            while time.time() < deadline:
+                try:
+                    focused = self.window_manager.focus_window(
+                        "Visual Studio Code", project_hint=folder_name
+                    )
+                    if focused:
+                        break
+                except Exception:
+                    pass
+                time.sleep(APP_LAUNCH_POLL_INTERVAL)
+
+            if not focused:
+                return {
+                    "success": False,
+                    "message": f"❌ 폴더 열기 후 창 포커스 실패: {folder_path}",
+                    "timestamp": time.time(),
+                }
+
+            # VS Code가 워크스페이스를 완전히 로드할 때까지 추가 대기
+            time.sleep(1.5)
+
+            return {
+                "success": True,
+                "message": f"✅ 폴더 열기 완료: {folder_path}",
+                "timestamp": time.time(),
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"❌ 폴더 열기 실패: {e}",
+                "timestamp": time.time(),
+            }
+
+    def _handle_save_file(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        💾 파일 저장 핸들러
+
+        file_name이 주어지면 Ctrl+Shift+S (다른 이름으로 저장) → 절대 경로 입력 → Enter.
+        file_name이 없으면 Ctrl+S (현재 파일 저장).
+
+        절대 경로 전략:
+          - folder_path + file_name → 절대 경로 조합
+          - folder_path 없이 file_name만 → 파일명만 입력 (기본 경로에 저장)
+          - 네이티브 Save As 다이얼로그의 파일명 필드를 Ctrl+A로 전체 선택 후 덮어쓰기
+
+        Args:
+            payload: {"file_name": str | None, "folder_path": str | None}
+
+        Returns:
+            실행 결과 딕셔너리
+
+        Example:
+            # 현재 파일 저장
+            result = controller._handle_save_file({"file_name": None})
+
+            # 절대 경로로 저장
+            result = controller._handle_save_file({
+                "file_name": "practice.py",
+                "folder_path": "C:/Users/student/Desktop/PythonWorkspace"
+            })
+        """
+        import os
+
+        import keyboard as kb
+
+        file_name = payload.get("file_name")
+        folder_path = payload.get("folder_path")
+        try:
+            if file_name:
+                # 절대 경로 조합
+                save_path = os.path.join(folder_path, file_name) if folder_path else file_name
+
+                # ⚠️ 파일이 이미 존재하면 덮어쓰기 확인 다이얼로그가 뜸
+                file_already_exists = os.path.exists(save_path)
+
+                # 다른 이름으로 저장: Ctrl+Shift+S
+                self.keyboard_controller.send_hotkey(["ctrl", "shift", "s"])
+                time.sleep(1.5)
+
+                # 파일명 필드를 전체 선택 후 절대 경로로 덮어쓰기
+                kb.send("ctrl+a")
+                time.sleep(0.1)
+                self.keyboard_controller.type_text(save_path)
+                time.sleep(0.3)
+
+                # Enter로 저장
+                kb.send("enter")
+
+                if file_already_exists:
+                    # 기존 파일 → 덮어쓰기 확인 다이얼로그 반복 시도
+                    # Enter, Tab+Enter, Alt+Y 순서로 시도하며 다이얼로그가 닫힐 때까지 반복
+                    for attempt, key_combo in enumerate(
+                        ["enter", "left+enter", "alt+y", "enter", "escape"], start=1
+                    ):
+                        time.sleep(0.7)
+                        active = self.window_manager.get_active_window_title()
+                        # VS Code 에디터로 돌아왔으면 성공
+                        if active and "Visual Studio Code" in active:
+                            print(f"✅ 덮어쓰기 확인 완료 (시도 {attempt})")
+                            break
+                        # 아직 다이얼로그 → 키 전송
+                        kb.send(key_combo)
+                        print(f"🔄 덮어쓰기 시도 {attempt}: {key_combo} (활성: '{active}')")
+
+                time.sleep(1.0)
+
+                return {
+                    "success": True,
+                    "message": f"✅ 파일 저장 완료: {save_path}",
+                    "timestamp": time.time(),
+                }
+            else:
+                # 현재 파일 저장: Ctrl+S
+                save_keys = self.keymap.get("shortcuts", {}).get("save", ["ctrl", "s"])
+                self.keyboard_controller.send_hotkey(save_keys)
+                time.sleep(0.3)
+                return {
+                    "success": True,
+                    "message": "✅ 파일 저장 완료",
+                    "timestamp": time.time(),
+                }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"❌ 파일 저장 실패: {e}",
                 "timestamp": time.time(),
             }

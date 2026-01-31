@@ -20,6 +20,8 @@ from models.commands import (
     GotoLinePayload,
     HotkeyPayload,
     OpenFilePayload,
+    OpenFolderPayload,
+    SaveFilePayload,
     TypeTextPayload,
 )
 from models.status import LocalStatus
@@ -58,6 +60,22 @@ class TestEditorCommandCreation:
     def test_goto_line(self):
         cmd = EditorCommand(type="goto_line", payload={"line_number": 42})
         assert cmd.type == "goto_line"
+
+    def test_goto_line_with_column(self):
+        cmd = EditorCommand(type="goto_line", payload={"line_number": 3, "column": 23})
+        assert cmd.payload["column"] == 23
+
+    def test_open_folder(self):
+        cmd = EditorCommand(type="open_folder", payload={"folder_path": "C:/workspace"})
+        assert cmd.type == "open_folder"
+
+    def test_save_file(self):
+        cmd = EditorCommand(type="save_file", payload={"file_name": "main.py"})
+        assert cmd.type == "save_file"
+
+    def test_save_file_no_name(self):
+        cmd = EditorCommand(type="save_file", payload={"file_name": None})
+        assert cmd.payload["file_name"] is None
 
     def test_optional_fields(self):
         cmd = EditorCommand(
@@ -112,6 +130,15 @@ class TestFromLegacy:
         assert cmd.type == "goto_line"
         assert cmd.payload["line_number"] == 42
 
+    def test_goto_line_with_column_legacy(self):
+        cmd = EditorCommand.from_legacy({"action": "goto_line", "line": 3, "column": 23})
+        assert cmd.payload["line_number"] == 3
+        assert cmd.payload["column"] == 23
+
+    def test_goto_line_without_column_legacy(self):
+        cmd = EditorCommand.from_legacy({"action": "goto_line", "line": 10})
+        assert "column" not in cmd.payload
+
     def test_command_palette_action(self):
         cmd = EditorCommand.from_legacy({"action": "command_palette", "content": "Format Document"})
         assert cmd.type == "command_palette"
@@ -130,6 +157,26 @@ class TestFromLegacy:
     def test_focus_window_action_content_fallback(self):
         cmd = EditorCommand.from_legacy({"action": "focus_window", "content": "Notepad"})
         assert cmd.payload["window_title"] == "Notepad"
+
+    def test_open_folder_action(self):
+        cmd = EditorCommand.from_legacy({
+            "action": "open_folder",
+            "folder_path": "C:/workspace",
+            "new_window": True,
+        })
+        assert cmd.type == "open_folder"
+        assert cmd.payload["folder_path"] == "C:/workspace"
+        assert cmd.payload["new_window"] is True
+
+    def test_save_file_action(self):
+        cmd = EditorCommand.from_legacy({"action": "save_file", "file_name": "app.py"})
+        assert cmd.type == "save_file"
+        assert cmd.payload["file_name"] == "app.py"
+
+    def test_save_file_action_no_name(self):
+        cmd = EditorCommand.from_legacy({"action": "save_file"})
+        assert cmd.type == "save_file"
+        assert cmd.payload["file_name"] is None
 
     def test_unknown_action_defaults_to_type_text(self):
         cmd = EditorCommand.from_legacy({"action": "unknown", "content": "some text"})
@@ -178,6 +225,12 @@ class TestPayloadModels:
     def test_goto_line_payload(self):
         p = GotoLinePayload(line_number=42)
         assert p.line_number == 42
+        assert p.column is None
+
+    def test_goto_line_payload_with_column(self):
+        p = GotoLinePayload(line_number=3, column=23)
+        assert p.line_number == 3
+        assert p.column == 23
 
     def test_goto_line_rejects_zero(self):
         with pytest.raises(ValidationError):
@@ -186,6 +239,31 @@ class TestPayloadModels:
     def test_goto_line_rejects_negative(self):
         with pytest.raises(ValidationError):
             GotoLinePayload(line_number=-1)
+
+    def test_goto_line_rejects_zero_column(self):
+        with pytest.raises(ValidationError):
+            GotoLinePayload(line_number=1, column=0)
+
+    def test_goto_line_rejects_negative_column(self):
+        with pytest.raises(ValidationError):
+            GotoLinePayload(line_number=1, column=-1)
+
+    def test_open_folder_payload(self):
+        p = OpenFolderPayload(folder_path="C:/workspace")
+        assert p.folder_path == "C:/workspace"
+        assert p.new_window is False
+
+    def test_open_folder_payload_new_window(self):
+        p = OpenFolderPayload(folder_path="C:/ws", new_window=True)
+        assert p.new_window is True
+
+    def test_save_file_payload(self):
+        p = SaveFilePayload(file_name="main.py")
+        assert p.file_name == "main.py"
+
+    def test_save_file_payload_none(self):
+        p = SaveFilePayload()
+        assert p.file_name is None
 
 
 # -------------------------------------------------------------------------
