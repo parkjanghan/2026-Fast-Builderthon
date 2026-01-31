@@ -79,9 +79,5 @@ class TestEditorControllerIntegration:
 
         controller = EditorController(keymap_path=keymap_path)
         cmd = EditorCommand(type="goto_line", payload={"line_number": 1})
-        # ⚠️ NotImplementedError가 발생하면 핸들러 미구현 상태
-        try:
-            result = controller.execute(cmd)
-            assert result.get("success") is True
-        except NotImplementedError:
-            pytest.skip("핸들러가 아직 구현되지 않았습니다")
+        result = controller.execute(cmd)
+        assert result.get("success") is True
