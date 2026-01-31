@@ -18,7 +18,7 @@
 
 # 서버 URL (재준님께 받은 주소로 교체 필요)
 # 예: "https://project-name.replit.app"
-SERVER_URL = "http://localhost:5000"
+SERVER_URL = "wss://5920da4b-c27b-4df6-9297-f7d4ec4f329f-00-st4gdos7kox3.riker.replit.dev/ws"
 
 # 웹소켓 연결 타임아웃 (초)
 CONNECTION_TIMEOUT = 10
