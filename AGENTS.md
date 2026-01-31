@@ -54,7 +54,7 @@ Chrome Extension (Eyes) ──WebSocket──▶ Replit Server (Brain) ──Web
 
 ## 통신 프로토콜
 
-모든 통신은 WebSocket(Socket.IO) 기반. JSON을 bytes로 변환하여 전송.
+모든 통신은 순수 WebSocket (RFC 6455) 기반. JSON 텍스트 프레임으로 전송.
 
 ### 이벤트 목록
 
@@ -143,7 +143,7 @@ cd local-program
 ```toml
 python = ">=3.12"
 dependencies = [
-    "python-socketio[client]>=5.10.0",  # WebSocket 통신
+    "websockets>=16.0",                 # WebSocket 통신
     "requests>=2.31.0",                 # HTTP 요청
     "pygame>=2.5.0",                    # 오디오 재생
     "pydantic>=2.0",                    # 데이터 검증

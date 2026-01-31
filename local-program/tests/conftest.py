@@ -4,7 +4,7 @@
 #
 # 🎯 역할:
 #   테스트에서 공통으로 사용하는 픽스처, 마커, 모킹 헬퍼를 정의합니다.
-#   pygame/socketio 의존성 없이 controller/models를 단독 테스트합니다.
+#   pygame 등 외부 의존성 없이 controller/models를 단독 테스트합니다.
 #
 # ============================================================================
 
@@ -15,18 +15,13 @@ from unittest.mock import MagicMock
 import pytest
 
 # -------------------------------------------------------------------------
-# 🔧 pygame / socketio 모킹 (빌드 없이 임포트 가능하도록)
+# 🔧 pygame 모킹 (빌드 없이 임포트 가능하도록)
 # -------------------------------------------------------------------------
 
 # pygame 모킹
 _pygame_mock = MagicMock()
 _pygame_mock.mixer = MagicMock()
 sys.modules.setdefault("pygame", _pygame_mock)
-
-# socketio 모킹
-_sio_mock = MagicMock()
-sys.modules.setdefault("socketio", _sio_mock)
-sys.modules.setdefault("engineio", MagicMock())
 
 # pywinauto 모킹 (테스트 환경에 없을 수 있으므로)
 for mod_name in [

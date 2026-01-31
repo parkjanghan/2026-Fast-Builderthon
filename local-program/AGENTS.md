@@ -15,7 +15,7 @@ SyncSight AI is an AI-powered lecture video synchronization system designed for 
 ### Local Agent Role
 
 The local agent is the "Hands" that execute commands on the student's Windows machine:
-- Receives commands from server via WebSocket (Socket.IO)
+- Receives commands from server via pure WebSocket (RFC 6455)
 - Plays audio guidance (ElevenLabs TTS)
 - Controls Windows applications (VS Code, etc.) using pywinauto
 - Reports local status back to server
@@ -250,7 +250,7 @@ Stick to dependencies in `pyproject.toml`:
 
 ```toml
 dependencies = [
-    "python-socketio[client]>=5.10.0",
+    "websockets>=16.0",
     "requests>=2.31.0",
     "pygame>=2.5.0",
     "pydantic>=2.0",
@@ -335,7 +335,7 @@ thread.start()
 **DO NOT**:
 - Create additional threads without coordination
 - Access shared state without locks if needed
-- Block the main thread (it handles Socket.IO events)
+- Block the main thread (it handles WebSocket events)
 
 **DO**:
 - Keep `execute_mentor_logic()` synchronous but fast

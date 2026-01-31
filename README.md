@@ -113,13 +113,13 @@ pywinauto 기반 범용 Windows 에디터 제어 (VS Code, 점자 에디터 등)
 |----------|------|
 | **Extension** | Manifest V3, WebSocket, chrome.tabCapture |
 | **Server** | Replit, NVIDIA NIM (VLM), ElevenLabs, LangChain |
-| **Local Agent** | Python 3.12, pywinauto, keyboard, pygame, python-socketio, Pydantic |
-| **통신** | WebSocket (Socket.IO) - 3자 실시간 통신 |
+| **Local Agent** | Python 3.12, pywinauto, keyboard, pygame, websockets, Pydantic |
+| **통신** | 순수 WebSocket (RFC 6455) - 3자 실시간 통신 |
 | **패키지 관리** | uv (Local Agent) |
 
 ## 통신 프로토콜
 
-모든 통신은 WebSocket(Socket.IO) 기반입니다.
+모든 통신은 순수 WebSocket (RFC 6455) 기반입니다.
 
 ### 이벤트 정의
 

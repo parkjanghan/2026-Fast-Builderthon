@@ -1,91 +1,186 @@
 import json
 import asyncio
+import time
 from datetime import datetime
 from aiohttp import web
-from typing import Dict, Optional  # 타입 안정성을 위한 라이브러리
+from typing import Dict, Optional
+
 from services.ai_service import AIService
-from dto.schemas import MessageEnvelope
+from dto.schemas import (
+    MessageEnvelope,
+    FrameData,
+    TranscriptData,
+    ConnectedMessage,
+    ErrorMessage,
+)
 
 
 class WebSocketManager:
+    """
+    🌐 WebSocket 허브 — Extension(chrome)과 Local Agent 양쪽을 관리
+
+    프로토콜 (protocol.md 기준):
+      - Extension → Server: {source:"chrome", data:{type:"frame"|"transcript", ...}}
+      - Local    → Server:  {source:"local",  data:{type:"local_status"|"hello"|..., ...}}
+      - Server   → Extension: raw JSON {type:"connected"|"transcript"|"command"|"error"}
+      - Server   → Local:     envelope {source:"replit", type:"editor_command", data:{...}}
+    """
 
     def __init__(self):
-        # 세션 관리 (타입을 명시하여 Pyright 에러 방지)
         self.sessions: Dict[str, Optional[web.WebSocketResponse]] = {
             "chrome": None,
-            "local": None
+            "local": None,
         }
         self.ai_service = AIService()
         self.last_local_status = "unknown"
+        # 자막 문맥 누적 (최근 N개)
+        self.transcript_context: list[str] = []
 
-    def get_time(self):
+    # ------------------------------------------------------------------
+    # 유틸
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _now_ms() -> int:
+        return int(time.time() * 1000)
+
+    @staticmethod
+    def _now_str() -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    # ------------------------------------------------------------------
+    # WebSocket 핸들러 (aiohttp)
+    # ------------------------------------------------------------------
     async def websocket_handler(self, request: web.Request):
         ws = web.WebSocketResponse()
         await ws.prepare(request)
-        curr_t = self.get_time()
+        t = self._now_str()
 
-        # 연결 즉시 응답 (Welcome ACK)
-        await ws.send_json({
-            "source": "replit",
-            "type": "connection_ack",
-            "data": {
-                "message": "Central Hub Connected",
-                "at": curr_t
-            }
-        })
-        print(f"[{curr_t}] 🔌 New client connected")
+        # 연결 즉시 protocol.md 형식의 connected 메시지 전송
+        await ws.send_json(ConnectedMessage(timestamp=self._now_ms()).model_dump())
+        print(f"[{t}] 🔌 New client connected")
 
         async for msg in ws:
             if msg.type == web.WSMsgType.TEXT:
-                await self._handle_message(ws, msg.data)
+                await self._route_message(ws, msg.data)
 
         # 연결 종료 시 세션 정리
         for key, session in self.sessions.items():
-            if session == ws:
+            if session is ws:
                 self.sessions[key] = None
-                print(f"[{self.get_time()}] ❌ {key} disconnected")
+                print(f"[{self._now_str()}] ❌ {key} disconnected")
 
         return ws
 
-    async def _handle_message(self, ws: web.WebSocketResponse, data: str):
+    # ------------------------------------------------------------------
+    # 메시지 라우팅 — 공통 envelope {source, data} 파싱
+    # ------------------------------------------------------------------
+    async def _route_message(self, ws: web.WebSocketResponse, raw: str):
         try:
-            envelope = MessageEnvelope.model_validate_json(data)
-            source = envelope.source
-            msg_type = envelope.type
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as e:
+            await ws.send_json(
+                ErrorMessage(code="PARSE_ERROR", message=str(e)).model_dump()
+            )
+            return
 
-            # 세션 등록
-            if source in self.sessions:
-                self.sessions[source] = ws
+        # envelope 검증
+        try:
+            envelope = MessageEnvelope.model_validate(parsed)
+        except Exception:
+            # envelope 형식이 아닌 경우 (fallback)
+            print(f"[{self._now_str()}] ⚠️ Non-envelope message: {list(parsed.keys())}")
+            return
 
-            # 로컬 클라이언트 데이터 처리
-            if source == "local":
-                if msg_type == "frame":
-                    # 이미지 분석 태스크 비동기 실행
-                    image_b64 = envelope.data.get("image")
-                    if image_b64:
-                        asyncio.create_task(
-                            self._process_ai_decision(image_b64))
+        source = envelope.source
+        data = envelope.data
 
-                elif msg_type == "status":
-                    self.last_local_status = envelope.data.get(
-                        "status", "unknown")
+        # 세션 등록
+        self.sessions[source] = ws
 
-        except Exception as e:
-            print(f"[{self.get_time()}] ❌ Message Error: {str(e)}")
+        if source == "chrome":
+            await self._handle_chrome_message(ws, data)
+        elif source == "local":
+            await self._handle_local_message(data)
 
+    # ------------------------------------------------------------------
+    # Extension(chrome) 메시지 처리
+    # ------------------------------------------------------------------
+    async def _handle_chrome_message(self, ws: web.WebSocketResponse, data: dict):
+        msg_type = data.get("type", "")
+        t = self._now_str()
+
+        if msg_type == "frame":
+            try:
+                frame = FrameData.model_validate(data)
+            except Exception as e:
+                await ws.send_json(
+                    ErrorMessage(code="INVALID_FORMAT", message=str(e)).model_dump()
+                )
+                return
+
+            print(f"[{t}] 📸 Frame received (videoTime={frame.videoTime}s)")
+
+            # AI 분석 파이프라인 비동기 실행
+            asyncio.create_task(self._process_ai_decision(frame.image))
+
+        elif msg_type == "transcript":
+            try:
+                transcript = TranscriptData.model_validate(data)
+            except Exception as e:
+                await ws.send_json(
+                    ErrorMessage(code="INVALID_FORMAT", message=str(e)).model_dump()
+                )
+                return
+
+            print(
+                f"[{t}] 📝 Transcript received "
+                f"({transcript.videoTimeStart}s – {transcript.videoTimeEnd}s): "
+                f"{transcript.text[:50]}..."
+            )
+
+            # 문맥 누적 (최근 10개)
+            self.transcript_context.append(transcript.text)
+            if len(self.transcript_context) > 10:
+                self.transcript_context.pop(0)
+
+        else:
+            print(f"[{t}] ⚠️ Unknown chrome message type: {msg_type}")
+
+    # ------------------------------------------------------------------
+    # Local Agent 메시지 처리
+    # ------------------------------------------------------------------
+    async def _handle_local_message(self, data: dict):
+        msg_type = data.get("type", "")
+        t = self._now_str()
+
+        if msg_type == "local_status":
+            self.last_local_status = data.get("active_window", "unknown")
+
+        elif msg_type == "hello":
+            print(f"[{t}] 👋 Local Agent connected: {data.get('message', '')}")
+
+        elif msg_type == "action_complete":
+            action = data.get("action", "?")
+            success = data.get("success", False)
+            icon = "✅" if success else "❌"
+            print(f"[{t}] {icon} Local completed: {action}")
+
+        else:
+            print(f"[{t}] 📩 Local message: {msg_type}")
+
+    # ------------------------------------------------------------------
+    # AI Decision 파이프라인 (NVIDIA NIM → Local Agent 명령)
+    # ------------------------------------------------------------------
     async def _process_ai_decision(self, image_b64: str):
         """
-        NVIDIA NIM 분석 후 명령어를 하달하는 핵심 파이프라인
+        NVIDIA NIM 분석 후 Local Agent에 명령 전송 + Extension에 상태 공유
         """
-        # 1. AI Decision Making (NVIDIA NIM 호출)
         decision = await self.ai_service.analyze_and_decide(
-            image_b64, self.last_local_status)
+            image_b64, self.last_local_status
+        )
+        t = self._now_str()
 
-        curr_t = self.get_time()
-
-        # 2. 로컬 세션에 명령어 전송 (Type Check로 Never 에러 방지)
+        # 1. Local Agent에 editor_command 전송
         local_ws = self.sessions.get("local")
         if local_ws is not None and not local_ws.closed:
             command_payload = {
@@ -95,22 +190,30 @@ class WebSocketManager:
                     "type": decision.get("type"),
                     "payload": decision.get("payload"),
                     "guidance": decision.get("guidance"),
-                    "should_pause": decision.get("should_pause", False)
-                }
+                    "should_pause": decision.get("should_pause", False),
+                },
             }
-            # await를 통해 비동기 전송 보장
             await local_ws.send_json(command_payload)
-            print(
-                f"[{curr_t}] 📡 [DECISION] {decision.get('type')} sent to Local"
-            )
+            print(f"[{t}] 📡 [DECISION] {decision.get('type')} → Local")
 
-        # 3. 크롬 세션에 상태 공유 (UI 업데이트)
+        # 2. Extension에 pause 명령 (should_pause인 경우)
         chrome_ws = self.sessions.get("chrome")
         if chrome_ws is not None and not chrome_ws.closed:
-            await chrome_ws.send_json({
-                "source": "replit",
-                "type": "ai_status",
-                "data": {
-                    "guidance": decision.get("guidance")
-                }
-            })
+            if decision.get("should_pause"):
+                await chrome_ws.send_json(
+                    {
+                        "type": "command",
+                        "action": "pause",
+                        "value": None,
+                    }
+                )
+
+            # AI 상태 공유 (guidance)
+            guidance = decision.get("guidance")
+            if guidance:
+                await chrome_ws.send_json(
+                    {
+                        "type": "ai_status",
+                        "guidance": guidance,
+                    }
+                )

@@ -27,7 +27,7 @@ SyncSight AI consists of three interconnected parts:
 ### Communication Flow
 
 ```
-Video Event → Chrome Extension → Server (Socket.IO)
+Video Event → Chrome Extension → Server (WebSocket)
                                      ↓
                                AI Processing
                                TTS Generation
@@ -92,7 +92,7 @@ uv sync
 ```
 
 This will install:
-- `python-socketio[client]` - WebSocket communication with server
+- `websockets` - Pure WebSocket communication with server
 - `requests` - HTTP client for audio downloads
 - `pygame` - Audio playback
 - `pydantic` - Data validation and schemas
@@ -173,7 +173,7 @@ Expected output:
 - Event handlers: `on_editor_sync`, `on_lecture_pause`, `on_lecture_resume`
 
 **Flow**:
-1. Connect to server via Socket.IO
+1. Connect to server via WebSocket
 2. Start status reporting thread (1Hz)
 3. Listen for `editor_sync` events
 4. On command received:
@@ -187,7 +187,7 @@ Expected output:
 
 **Key Settings**:
 - `SERVER_URL`: Replit server address
-- `EVENT_*`: Socket.IO event names (must match server)
+- `CONNECTION_TIMEOUT`, `RECONNECT_*`: WebSocket 연결 설정
 - `AUDIO_*`: pygame mixer settings, cache directory
 - `STATUS_REPORT_INTERVAL`: How often to send status updates
 
