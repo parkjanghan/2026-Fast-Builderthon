@@ -124,9 +124,23 @@ class WebSocketManager:
         except Exception as e:
             print(f"[{self._now_str()}] ❌ Message Error: {str(e)}")
 
-    def _compute_command_hash(self, action: str, params: dict) -> str:
-        """명령의 핵심 내용으로 해시 생성 (audio_url 제외 — 같은 명령이면 음성도 동일)"""
-        key = json.dumps({"action": action, "params": params}, sort_keys=True)
+    def _compute_command_hash(self, action: str, params: dict, guidance: str) -> str:
+        """
+        명령의 핵심 내용으로 해시 생성.
+        - expected_content 제외 (OCR 결과가 매번 미세하게 다름)
+        - guidance 포함 (같은 빈 TYPE_TEXT라도 안내 내용이 다르면 전달)
+        """
+        core = {
+            "action": action,
+            "content": params.get("content", ""),
+            "keys": params.get("keys", []),
+            "command": params.get("command", ""),
+            "line_number": params.get("line_number", ""),
+            "file_path": params.get("file_path", ""),
+            "target_file": params.get("target_file", ""),
+            "guidance": guidance,
+        }
+        key = json.dumps(core, sort_keys=True)
         return hashlib.md5(key.encode()).hexdigest()
 
     async def _process_ai_decision(self, image_b64: str):
@@ -152,17 +166,13 @@ class WebSocketManager:
             if expected_content:
                 params["expected_content"] = expected_content
 
-            # 중복 명령 방지: 직전 명령과 동일하면 skip
-            cmd_hash = self._compute_command_hash(action_type, params)
+            # 중복 명령 방지: 직전과 action+핵심payload+guidance가 완전히 동일하면 skip
+            guidance = decision.get("guidance", "")
+            cmd_hash = self._compute_command_hash(action_type, params, guidance)
             if cmd_hash == self._last_command_hash:
                 print(f"[{t}] ⏭️ [SKIP] 중복 명령 — {action_type}")
                 return
             self._last_command_hash = cmd_hash
-
-            # content가 비어있는 TYPE_TEXT는 skip
-            if action_type == "TYPE_TEXT" and not params.get("content", "").strip():
-                print(f"[{t}] ⏭️ [SKIP] 빈 TYPE_TEXT 명령")
-                return
 
             command_payload = {
                 "source": "server",
