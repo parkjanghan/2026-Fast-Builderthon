@@ -99,7 +99,7 @@ class WebSocketManager:
             # 세션 등록
             self.sessions[source] = ws
 
-            # 크롬 확장프로그램에서 frame 수신
+            # 크롬 확장프로그램에서 메시지 수신
             if source == "chrome":
                 if msg_type == "frame":
                     # 이미지 분석 태스크 비동기 실행
@@ -107,6 +107,15 @@ class WebSocketManager:
                     if image_b64:
                         asyncio.create_task(
                             self._process_ai_decision(image_b64))
+
+                elif msg_type == "transcript":
+                    # 자막 텍스트를 문맥에 추가 (최근 10개 유지)
+                    text = inner_data.get("text", "")
+                    if text:
+                        self.transcript_context.append(text)
+                        if len(self.transcript_context) > 10:
+                            self.transcript_context.pop(0)
+                        print(f"[{self._now_str()}] 📝 Transcript: {text[:50]}...")
 
             # 로컬 에이전트에서 상태 수신
             elif source == "local":
