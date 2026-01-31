@@ -61,10 +61,10 @@ class WebSocketManager:
             "type": "connection_ack",
             "data": {
                 "message": "Central Hub Connected",
-                "at": curr_t
+                "at": t
             }
         })
-        print(f"[{curr_t}] 🔌 New client connected")
+        print(f"[{t}] 🔌 New client connected")
 
         async for msg in ws:
             if msg.type == web.WSMsgType.TEXT:
@@ -92,9 +92,8 @@ class WebSocketManager:
 
         # envelope 검증
         try:
-            raw_data = json.loads(data)
-            source = raw_data.get("source", "unknown")
-            inner_data = raw_data.get("data", {})
+            source = parsed.get("source", "unknown")
+            inner_data = parsed.get("data", {})
             msg_type = inner_data.get("type", "unknown")
 
             # 세션 등록
@@ -116,7 +115,7 @@ class WebSocketManager:
                         "active_window", "unknown")
 
         except Exception as e:
-            print(f"[{self.get_time()}] ❌ Message Error: {str(e)}")
+            print(f"[{self._now_str()}] ❌ Message Error: {str(e)}")
 
     async def _process_ai_decision(self, image_b64: str):
         """
@@ -142,7 +141,7 @@ class WebSocketManager:
             }
             await local_ws.send_json(command_payload)
             print(
-                f"[{curr_t}] 📡 [DECISION] {action_type} sent to Local"
+                f"[{t}] 📡 [DECISION] {action_type} sent to Local"
             )
 
         chrome_ws = self.sessions.get("chrome")
