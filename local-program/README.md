@@ -28,14 +28,14 @@ SyncSight AI consists of three interconnected parts:
 
 ```
 Video Event → Chrome Extension → Server (Socket.IO)
-                                    ↓
-                              AI Processing
-                              TTS Generation
-                                    ↓
-                    Command + Audio URL → Local Agent
-                                    ↓
-                              Audio Playback
-                              Editor Control
+                                     ↓
+                               AI Processing
+                               TTS Generation
+                                     ↓
+                     Command + Audio URL → Local Agent
+                                     ↓
+                               Audio Playback
+                               Editor Control
 ```
 
 ## Directory Structure

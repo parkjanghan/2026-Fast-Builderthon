@@ -1,27 +1,33 @@
 # ============================================================================
-# 📁 main.py - Part 3 로컬 에이전트 메인 엔트리포인트
+# 📁 main.py - Part 3 로컬 에이전트 컨트롤 타워 🎛️
 # ============================================================================
 #
 # 🎯 역할:
-#   1. Part 2 서버와 웹소켓(Socket.IO)으로 통신
-#   2. 서버에서 명령을 받아 오디오 재생 + Windows 제어 실행
-#   3. 1초마다 로컬 상태(활성 창 등)를 서버에 보고
+#   1. Part 2 서버와 WebSocket으로 통신 (순수 WebSocket)
+#   2. Downlink: 서버 명령 수신 → 오디오 재생 + 멘토님 로직 실행
+#   3. Uplink: 1초마다 로컬 상태(활성 창 등)를 서버에 보고
 #
 # 📝 멘토님께:
 #   이 파일의 "멘토님 전용 구역"에 pywinauto 로직을 추가해 주세요!
 #   execute_mentor_logic() 함수가 호출될 때 JSON 데이터와 함께 전달됩니다.
 #
+# 📦 모듈 구조:
+#   main.py           - 컨트롤 타워 (이 파일)
+#   ├── audio_handler.py    - 입 (ElevenLabs 음성 재생)
+#   └── status_monitor.py   - 눈 (로컬 상태 감시)
+#
 # 🚀 실행 방법:
-#   python main.py
+#   python -m uv run python main.py
 #
 # ============================================================================
 
+import asyncio
 import time
 import json
-import threading
+from datetime import datetime
 from typing import Any, Dict, Optional
 
-import socketio
+import websockets
 
 # 로컬 모듈 임포트
 from config import (
@@ -30,38 +36,67 @@ from config import (
     RECONNECT_ENABLED,
     RECONNECT_DELAY,
     RECONNECT_MAX_ATTEMPTS,
-    EVENT_EDITOR_SYNC,
-    EVENT_LECTURE_PAUSE,
-    EVENT_LECTURE_RESUME,
-    EVENT_LOCAL_STATUS,
-    EVENT_TASK_COMPLETE,
     STATUS_REPORT_INTERVAL
 )
 from audio_handler import AudioHandler
+from status_monitor import StatusMonitor
 
 
 # ============================================================================
-# 🌐 Socket.IO 클라이언트 설정
+# 📡 프로토콜 정의 (재준 님과 협의 완료!)
+# ============================================================================
+#
+# 📥 수신 (Downlink) JSON 형식 (서버 → 로컬):
+#   {
+#       "source": "server",
+#       "data": {
+#           "action": "GOTO_LINE",           # 수행할 동작
+#           "params": {"line": 10},          # 동작 파라미터
+#           "audio_url": "https://...",      # ElevenLabs 음성 URL (선택)
+#           "timestamp": "2026-01-31 09:12:45"
+#       }
+#   }
+#
+# 📤 송신 (Uplink) JSON 형식 (로컬 → 서버):
+#   {
+#       "source": "local",
+#       "data": {
+#           "type": "local_status",
+#           "active_window": "Visual Studio Code",
+#           "urgent": false,
+#           "timestamp": "2026-01-31 09:12:45"
+#       }
+#   }
+#
+# 🛑 주요 액션 타입 (data.action):
+#   - GOTO_LINE: 특정 줄로 이동 (params: { line: 숫자 })
+#   - TYPE_CODE: 코드 입력 (params: { text: "..." })
+#
 # ============================================================================
 
-# Socket.IO 클라이언트 생성
-# reconnection=True: 연결이 끊겨도 자동으로 재연결 시도
-sio = socketio.Client(
-    reconnection=RECONNECT_ENABLED,
-    reconnection_delay=RECONNECT_DELAY,
-    reconnection_attempts=RECONNECT_MAX_ATTEMPTS if RECONNECT_MAX_ATTEMPTS > 0 else 0,
-    logger=False,  # 디버그 로그 비활성화 (필요시 True로)
-    engineio_logger=False
-)
 
-# 오디오 핸들러 전역 인스턴스
+# ============================================================================
+# 🌐 전역 변수
+# ============================================================================
+
+# 모듈 인스턴스
 audio_handler: Optional[AudioHandler] = None
+status_monitor: Optional[StatusMonitor] = None
 
-# 상태 보고 스레드 실행 플래그
-status_report_running = False
+# WebSocket 연결 객체
+ws_connection = None
 
-# 강의 일시정지 상태
-is_lecture_paused = False
+# 상태 플래그
+is_connected = False
+
+
+# ============================================================================
+# 🔧 유틸리티 함수
+# ============================================================================
+
+def get_timestamp() -> str:
+    """현재 시간을 문자열로 반환 (재준 님 형식)"""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 # ============================================================================
@@ -70,26 +105,44 @@ is_lecture_paused = False
 #
 # 📌 이 구역에 Windows 자동화 로직을 추가해 주세요!
 #
-# 사용 가능한 데이터 (command_data 딕셔너리):
-#   - command_data.get("action"): 수행할 동작 (예: "type", "click", "scroll")
-#   - command_data.get("target"): 대상 요소 (예: "line_15", "button_run")
-#   - command_data.get("content"): 입력할 내용 (타이핑의 경우)
-#   - command_data.get("audio_url"): 재생할 음성 URL
-#   - 기타 Part 2에서 정의한 필드들...
+# 📥 받을 수 있는 데이터 (command_data 딕셔너리):
+#   - command_data.get("action"): 수행할 동작 
+#       예: "GOTO_LINE", "TYPE_CODE", "CLICK", "SCROLL"
+#   - command_data.get("params"): 동작 파라미터 (딕셔너리)
+#       예: {"line": 10}, {"text": "print('hello')"}, {"x": 100, "y": 200}
+#   - command_data.get("audio_url"): 재생할 음성 URL (이미 처리됨)
 #
-# 예시 구현:
+# 📤 반환값:
+#   - True: 작업 성공
+#   - False: 작업 실패
+#   - 딕셔너리: 상세 결과 (서버에 전송됨)
+#
+# 💡 구현 예시:
 #   from pywinauto import Application
 #   
-#   def execute_mentor_logic(command_data: Dict[str, Any]):
+#   def execute_mentor_logic(command_data):
 #       action = command_data.get("action")
-#       if action == "type":
-#           # VS Code에 타이핑
-#           app = Application().connect(title_re=".*Visual Studio Code.*")
-#           app.window().type_keys(command_data.get("content"))
+#       params = command_data.get("params", {})
+#       
+#       app = Application(backend='uia').connect(title_re=".*Visual Studio Code.*")
+#       window = app.window(title_re=".*Visual Studio Code.*")
+#       
+#       if action == "GOTO_LINE":
+#           line = params.get("line", 1)
+#           window.type_keys("^g")  # Ctrl+G
+#           window.type_keys(str(line) + "{ENTER}")
+#           return True
+#           
+#       elif action == "TYPE_CODE":
+#           text = params.get("text", "")
+#           window.type_keys(text, with_spaces=True)
+#           return True
+#           
+#       return False
 #
 # ============================================================================
 
-def execute_mentor_logic(command_data: Dict[str, Any]):
+def execute_mentor_logic(command_data: Dict[str, Any]) -> Any:
     """
     🎯 멘토님 전용 함수 - pywinauto 로직이 들어갈 곳
     
@@ -97,22 +150,26 @@ def execute_mentor_logic(command_data: Dict[str, Any]):
     Windows 자동화 로직을 여기에 구현해 주세요.
     
     Args:
-        command_data (Dict[str, Any]): 서버에서 받은 명령 데이터
-            - action: 수행할 동작 종류
-            - target: 대상 요소/위치
-            - content: 입력할 내용 (있는 경우)
-            - 기타 필드...
+        command_data (Dict[str, Any]): 서버에서 받은 명령 데이터 (data 필드 내용)
+            - action (str): 수행할 동작 종류
+            - params (dict): 동작 파라미터
+            - 기타 서버에서 정의한 필드들...
     
     Returns:
-        None
+        bool 또는 dict: 작업 결과
+            - True: 성공
+            - False: 실패
+            - dict: 상세 결과 {"success": True, "message": "..."}
     
-    Example command_data:
+    Example:
+        Input:
         {
-            "action": "type",
-            "target": "editor",
-            "content": "print('Hello, World!')",
-            "line": 15
+            "action": "GOTO_LINE",
+            "params": {"line": 15}
         }
+        
+        Output:
+        True  # 또는 {"success": True, "line": 15}
     """
     from controller import EditorController
     from models.commands import EditorCommand
@@ -133,250 +190,163 @@ def execute_mentor_logic(command_data: Dict[str, Any]):
         print(f"❌ [Controller] 실행 실패: {e}")
 
 
-def get_local_status() -> Dict[str, Any]:
-    """
-    📊 현재 로컬 시스템 상태를 가져옵니다.
-    
-    멘토님이 pywinauto/pygetwindow를 추가하시면 
-    활성 창 정보 등을 반환하도록 확장할 수 있습니다.
-    
-    Returns:
-        Dict[str, Any]: 로컬 상태 정보
-            - active_window: 현재 활성 창 제목
-            - timestamp: 현재 시간
-            - is_paused: 강의 일시정지 상태
-    """
-    try:
-        from controller import EditorController
-        ctrl = EditorController()
-        status = ctrl.get_status()
-        return status.model_dump()
-    except Exception as e:
-        # Fallback: controller 사용 불가 시 기존 로직
-        print(f"⚠️ [Controller] 상태 조회 실패, fallback 사용: {e}")
-        window_title = "Unknown (controller 사용 불가)"
-        return {
-            "active_window": window_title,
-            "timestamp": time.time(),
-            "is_paused": is_lecture_paused,
-            "status": "ready"
-        }
-
-
 # ============================================================================
-# 📡 Socket.IO 이벤트 핸들러
+# 📨 Downlink Handler (서버 → 로컬)
 # ============================================================================
 
-@sio.event
-def connect():
-    """✅ 서버 연결 성공 시 호출됩니다."""
-    print("=" * 60)
-    print("✅ 서버 연결 성공!")
-    print(f"   서버 주소: {SERVER_URL}")
-    print(f"   연결 시간: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 60)
-    
-    # 상태 보고 스레드 시작
-    start_status_reporter()
-
-
-@sio.event
-def disconnect():
-    """❌ 서버 연결 해제 시 호출됩니다."""
-    print("=" * 60)
-    print("❌ 서버 연결 끊김!")
-    print(f"   시간: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    if RECONNECT_ENABLED:
-        print(f"   🔄 {RECONNECT_DELAY}초 후 재연결 시도...")
-    print("=" * 60)
-
-
-@sio.event
-def connect_error(data):
-    """⚠️ 연결 오류 발생 시 호출됩니다."""
-    print(f"⚠️ 연결 오류: {data}")
-    print("   서버가 실행 중인지, URL이 올바른지 확인하세요.")
-
-
-@sio.on(EVENT_EDITOR_SYNC)
-def on_editor_sync(data):
+async def handle_downlink_message(message: str):
     """
-    📝 에디터 동기화 명령 수신 핸들러
+    📨 서버에서 받은 메시지를 처리합니다.
     
-    서버에서 editor_sync 이벤트를 받으면:
-    1. 오디오가 있으면 먼저 재생
-    2. 재생 완료 후 멘토님의 pywinauto 로직 실행
+    재준 님 형식:
+    {
+        "source": "server",
+        "data": { ... 실제 데이터 ... }
+    }
     
-    Args:
-        data: 서버에서 받은 명령 데이터 (dict 또는 JSON 문자열)
+    메시지 처리 순서:
+    1. JSON 파싱 → data 필드 추출
+    2. audio_url이 있으면 오디오 재생 (동기)
+    3. action이 있으면 멘토님 로직 실행
+    4. 결과를 서버에 보고
     """
     print("")
     print("=" * 60)
-    print(f"📨 [{EVENT_EDITOR_SYNC}] 명령 수신!")
+    print("📨 [Downlink] 메시지 수신!")
     print("=" * 60)
     
-    # JSON 문자열이면 파싱
-    if isinstance(data, str):
-        try:
-            command_data = json.loads(data)
-        except json.JSONDecodeError:
-            print(f"❌ JSON 파싱 실패: {data}")
-            return
-    else:
-        command_data = data
+    # ---------------------------------------------------------------------
+    # 1단계: JSON 파싱 및 data 추출
+    # ---------------------------------------------------------------------
+    try:
+        raw_message = json.loads(message)
+    except json.JSONDecodeError:
+        print(f"📝 텍스트 메시지: {message}")
+        return
     
-    print(f"📦 데이터: {json.dumps(command_data, indent=2, ensure_ascii=False)}")
+    print(f"📦 원본 수신 데이터:")
+    print(json.dumps(raw_message, indent=2, ensure_ascii=False))
     
-    # 1단계: 오디오 재생 (있는 경우)
-    audio_url = command_data.get("audio_url")
+    # source 확인 (디버그용)
+    source = raw_message.get("source", "unknown")
+    print(f"📍 발신자: {source}")
+    
+    # data 필드 추출 (재준 님 형식)
+    # 만약 data 필드가 없으면 raw_message 자체를 사용 (하위 호환)
+    data = raw_message.get("data", raw_message)
+    
+    action = data.get("action", "").upper() if isinstance(data.get("action"), str) else ""
+    
+    # ---------------------------------------------------------------------
+    # 2단계: 오디오 재생 (있는 경우)
+    # ---------------------------------------------------------------------
+    audio_url = data.get("audio_url")
     
     if audio_url and audio_handler:
-        print("\n🔊 오디오 재생 시작...")
-        audio_handler.play_from_url(audio_url)
-        audio_handler.wait_until_done()  # 재생 완료까지 대기
-        print("✅ 오디오 재생 완료!")
+        print("\n🔊 [Audio] ElevenLabs 음성 재생 시작...")
+        audio_handler.play_from_url_sync(audio_url)  # 동기식: 재생 완료까지 대기
+        print("✅ [Audio] 음성 재생 완료!")
     
-    # 2단계: 멘토님 로직 실행
-    print("\n🎯 멘토님 로직 실행...")
-    execute_mentor_logic(command_data)
-    
-    # 3단계: 작업 완료 알림 (서버에)
-    try:
-        sio.emit(EVENT_TASK_COMPLETE, {
-            "status": "success",
-            "command_id": command_data.get("id", "unknown"),
-            "timestamp": time.time()
+    # ---------------------------------------------------------------------
+    # 3단계: 멘토님 로직 실행 (action이 있는 경우)
+    # ---------------------------------------------------------------------
+    if action:
+        print(f"\n🎯 [Action] 멘토님 로직 실행: {action}")
+        
+        result = execute_mentor_logic(data)
+        
+        # 결과 서버에 보고
+        await send_uplink_message({
+            "type": "action_complete",
+            "action": action,
+            "success": bool(result),
+            "result": result if isinstance(result, dict) else None,
+            "command_id": data.get("id", "unknown"),
+            "timestamp": get_timestamp()
         })
-        print("📤 작업 완료 알림 전송")
-    except Exception as e:
-        print(f"⚠️ 완료 알림 전송 실패: {e}")
-
-
-@sio.on(EVENT_LECTURE_PAUSE)
-def on_lecture_pause(data):
-    """
-    ⏸️ 강의 일시정지 신호 수신 핸들러 (Pause-and-Explain 기능)
-    
-    사용자가 질문을 하거나 추가 설명이 필요할 때
-    서버에서 이 신호를 보냅니다.
-    
-    Args:
-        data: 일시정지 관련 데이터 (이유, 메시지 등)
-    """
-    global is_lecture_paused
-    
-    print("")
-    print("=" * 60)
-    print(f"⏸️ [{EVENT_LECTURE_PAUSE}] 강의 일시정지!")
-    print("=" * 60)
-    
-    is_lecture_paused = True
-    
-    # 오디오도 일시정지
-    if audio_handler and audio_handler.is_playing:
-        audio_handler.pause()
-    
-    # 일시정지 이유가 있으면 출력
-    if isinstance(data, dict):
-        reason = data.get("reason", "사용자 요청")
-        message = data.get("message", "")
-        print(f"   이유: {reason}")
-        if message:
-            print(f"   메시지: {message}")
-    
-    print("")
-    print("💡 강의가 일시정지되었습니다.")
-    print("   서버에서 lecture_resume 신호를 보내면 재개됩니다.")
-    print("=" * 60)
-    
-    # -------------------------------------------------------------------------
-    # 🛠️ 멘토님: 일시정지 시 추가 동작이 필요하면 여기에 구현
-    # -------------------------------------------------------------------------
-    # 예: 에디터 하이라이트, 알림 표시 등
-    pass
-
-
-@sio.on(EVENT_LECTURE_RESUME)
-def on_lecture_resume(data):
-    """
-    ▶️ 강의 재개 신호 수신 핸들러
-    
-    일시정지 후 다시 강의를 재개할 때 서버에서 보냅니다.
-    
-    Args:
-        data: 재개 관련 데이터
-    """
-    global is_lecture_paused
-    
-    print("")
-    print("=" * 60)
-    print(f"▶️ [{EVENT_LECTURE_RESUME}] 강의 재개!")
-    print("=" * 60)
-    
-    is_lecture_paused = False
-    
-    # 오디오 재개
-    if audio_handler and audio_handler.is_paused:
-        audio_handler.resume()
-    
-    print("💡 강의가 재개되었습니다.")
-    print("=" * 60)
+        print("📤 [Uplink] 작업 완료 보고 전송")
 
 
 # ============================================================================
-# 📊 상태 보고 기능
+# 📤 Uplink Handler (로컬 → 서버)
 # ============================================================================
 
-def start_status_reporter():
+async def send_uplink_message(data: Dict[str, Any]):
     """
-    📊 상태 보고 스레드를 시작합니다.
+    📤 서버에 메시지를 전송합니다.
     
-    STATUS_REPORT_INTERVAL 간격으로 서버에 로컬 상태를 보고합니다.
+    재준 님 형식으로 래핑:
+    {
+        "source": "local",
+        "data": { ... 실제 데이터 ... }
+    }
     """
-    global status_report_running
+    global ws_connection
     
-    if status_report_running:
-        return  # 이미 실행 중
-    
-    status_report_running = True
-    
-    def report_loop():
-        while status_report_running and sio.connected:
-            try:
-                status = get_local_status()
-                sio.emit(EVENT_LOCAL_STATUS, status)
-                # 디버그용 (너무 많이 출력되면 주석 처리)
-                # print(f"📤 상태 보고: {status}")
-            except Exception as e:
-                print(f"⚠️ 상태 보고 실패: {e}")
+    if ws_connection:
+        try:
+            # 재준 님 형식으로 래핑
+            wrapped_message = {
+                "source": "local",
+                "data": data
+            }
             
-            time.sleep(STATUS_REPORT_INTERVAL)
+            await ws_connection.send(json.dumps(wrapped_message))
+        except Exception as e:
+            print(f"⚠️ [Uplink] 전송 실패: {e}")
+
+
+async def status_report_loop():
+    """
+    📊 주기적으로 서버에 로컬 상태를 보고합니다.
     
-    thread = threading.Thread(target=report_loop, daemon=True)
-    thread.start()
-    print(f"📊 상태 보고 시작 (간격: {STATUS_REPORT_INTERVAL}초)")
-
-
-def stop_status_reporter():
-    """📊 상태 보고 스레드를 중지합니다."""
-    global status_report_running
-    status_report_running = False
-    print("📊 상태 보고 중지")
+    재준 님 형식:
+    {
+        "source": "local",
+        "data": {
+            "type": "local_status",
+            "active_window": "...",
+            "urgent": false,
+            "timestamp": "2026-01-31 09:12:45"
+        }
+    }
+    """
+    global is_connected
+    
+    print(f"📊 [Uplink] 상태 보고 시작 (간격: {STATUS_REPORT_INTERVAL}초)")
+    
+    while is_connected:
+        try:
+            if status_monitor:
+                # 로컬 상태 수집
+                raw_status = status_monitor.get_current_status()
+                
+                # 재준 님 형식에 맞게 변환
+                status_data = {
+                    "type": "local_status",
+                    "active_window": raw_status.get("active_window", "Unknown"),
+                    "is_vscode": raw_status.get("is_vscode", False),
+                    "urgent": False,  # 긴급 상황 시 True로 변경
+                    "timestamp": get_timestamp()
+                }
+                
+                await send_uplink_message(status_data)
+                
+        except Exception as e:
+            print(f"⚠️ [Uplink] 상태 보고 실패: {e}")
+        
+        await asyncio.sleep(STATUS_REPORT_INTERVAL)
 
 
 # ============================================================================
-# 🚀 메인 실행부
+# 🔌 WebSocket 연결 관리
 # ============================================================================
 
-def main():
+async def connect_to_server():
     """
-    🚀 메인 함수 - 프로그램 시작점
-    
-    1. 오디오 핸들러 초기화
-    2. 서버 연결
-    3. 연결 유지 (이벤트 대기)
+    🔌 서버에 연결하고 메시지를 송수신합니다.
     """
-    global audio_handler
+    global ws_connection, is_connected
     
     print("")
     print("=" * 60)
@@ -388,52 +358,95 @@ def main():
     print("=" * 60)
     print("")
     
-    # 오디오 핸들러 초기화
+    reconnect_count = 0
+    
+    while True:
+        try:
+            print(f"🔌 서버 연결 시도 중...")
+            
+            async with websockets.connect(SERVER_URL) as ws:
+                ws_connection = ws
+                is_connected = True
+                reconnect_count = 0
+                
+                print("")
+                print("=" * 60)
+                print("✅ 서버 연결 성공!")
+                print(f"   서버: {SERVER_URL}")
+                print(f"   시간: {get_timestamp()}")
+                print("=" * 60)
+                print("")
+                print("💡 Ctrl+C로 종료")
+                print("💡 서버에서 명령을 기다리는 중...")
+                print("")
+                
+                # 연결 알림 전송 (재준 님 형식)
+                await send_uplink_message({
+                    "type": "hello",
+                    "message": "Part 3 로컬 에이전트 연결됨!",
+                    "urgent": False,
+                    "timestamp": get_timestamp()
+                })
+                
+                # 상태 보고 태스크 시작
+                status_task = asyncio.create_task(status_report_loop())
+                
+                try:
+                    # 메시지 수신 루프 (Downlink)
+                    async for message in ws:
+                        await handle_downlink_message(message)
+                        
+                except websockets.ConnectionClosed as e:
+                    print(f"\n❌ 서버 연결 끊김! (코드: {e.code})")
+                    
+                finally:
+                    is_connected = False
+                    status_task.cancel()
+                    
+        except Exception as e:
+            print(f"\n❌ 연결 실패: {e}")
+        
+        # 재연결 로직
+        if not RECONNECT_ENABLED:
+            break
+        
+        reconnect_count += 1
+        if RECONNECT_MAX_ATTEMPTS > 0 and reconnect_count >= RECONNECT_MAX_ATTEMPTS:
+            print(f"❌ 최대 재연결 시도 횟수({RECONNECT_MAX_ATTEMPTS})에 도달")
+            break
+        
+        print(f"🔄 {RECONNECT_DELAY}초 후 재연결... ({reconnect_count}/{RECONNECT_MAX_ATTEMPTS or '∞'})")
+        await asyncio.sleep(RECONNECT_DELAY)
+
+
+# ============================================================================
+# 🚀 메인 실행부
+# ============================================================================
+
+def main():
+    """🚀 프로그램 시작점"""
+    global audio_handler, status_monitor
+    
+    # 모듈 초기화
+    print("")
+    print("🔧 모듈 초기화 중...")
     audio_handler = AudioHandler()
+    status_monitor = StatusMonitor(sender_id="LOCAL_AGENT_KUNHO")
     
     try:
-        # 서버 연결 시도
-        print(f"🔌 서버 연결 시도 중... ({SERVER_URL})")
-        sio.connect(
-            SERVER_URL,
-            wait_timeout=CONNECTION_TIMEOUT,
-            transports=['websocket', 'polling']  # WebSocket 우선, 폴링 폴백
-        )
-        
-        # 연결 유지 (이벤트 대기)
-        print("\n💡 Ctrl+C로 종료할 수 있습니다.\n")
-        sio.wait()
-        
-    except socketio.exceptions.ConnectionError as e:
-        print(f"\n❌ 서버 연결 실패!")
-        print(f"   에러: {e}")
-        print(f"\n🔧 확인해 주세요:")
-        print(f"   1. 서버가 실행 중인가요? ({SERVER_URL})")
-        print(f"   2. config.py의 SERVER_URL이 올바른가요?")
-        print(f"   3. 네트워크 연결이 정상인가요?")
+        asyncio.run(connect_to_server())
         
     except KeyboardInterrupt:
-        print("\n\n⚠️ 사용자에 의해 종료됨 (Ctrl+C)")
+        print("\n\n⚠️ 사용자 종료 (Ctrl+C)")
         
     finally:
-        # 정리 작업
-        print("\n🧹 정리 작업 중...")
-        stop_status_reporter()
-        
-        if sio.connected:
-            sio.disconnect()
-            print("   ✅ 서버 연결 해제")
+        print("\n🧹 정리 작업...")
         
         if audio_handler:
             audio_handler.cleanup()
-            print("   ✅ 오디오 핸들러 정리")
         
         print("\n👋 Part 3 로컬 에이전트 종료!")
 
-
-# ============================================================================
-# 🖥️ 직접 실행 시
-# ============================================================================
 
 if __name__ == "__main__":
     main()

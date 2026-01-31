@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Video Capture Extension",
+  "version": "1.0.0",
+  "description": "Captures audio and frames from coding videos with time synchronization",
+
+  "permissions": [
+    "activeTab",
+    "tabCapture",
+    "offscreen",
+    "storage"
+  ],
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Video Capture"
+  }
+}
